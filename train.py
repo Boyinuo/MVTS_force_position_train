@@ -1,6 +1,6 @@
 """Train the diagram's visual-acoustic tactile regression architecture.
 
-Example: uv run python train.py --dataset data_sensor_normal --epochs 1 --max-groups 3 --max-steps 2
+Example: python train.py --prepared-root .cache/data_final_v4 --epochs 1 --max-groups 3 --max-steps 2
 """
 import argparse
 import json
@@ -23,10 +23,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     data_source = parser.add_mutually_exclusive_group()
     data_source.add_argument("--dataset", metavar="NAME",
-                             help="Subfolder name under data/ (default: data_sensor_normal)")
+                             help="Subfolder name under data/ (triple-head default: data_final)")
     data_source.add_argument("--data-root", metavar="PATH",
                              help="Read a data directory directly instead of selecting --dataset")
     parser.add_argument("--output", default="runs/train")
+    parser.add_argument("--prepared-root", help="Triple-head prepared cache from preprocess.py")
+    parser.add_argument("--disable-mic-channels", type=int, nargs="+", choices=range(1, 7),
+                        help="Triple-head: exclude microphone numbers 1..6; e.g. 5. Resume defaults to checkpoint setting")
     parser.add_argument("--model", choices=available_models(),
                         help=f"Model module filename without .py; default: {DEFAULT_MODEL}, or checkpoint model on resume")
     parser.add_argument("--epochs", type=int, default=30, help="Total epochs, including resumed epochs")
@@ -43,6 +46,11 @@ def parse_args():
     parser.add_argument("--use-contact", action="store_true", help="Optional contact embedding; diagram default is off")
     parser.add_argument("--position-weight", type=float, default=1.0)
     parser.add_argument("--wrench-weight", type=float, default=1.0)
+    parser.add_argument("--slip-weight", type=float, default=1.0)
+    parser.add_argument("--contact-weight", type=float, default=1.0, help="Contact-aware BCE loss weight")
+    parser.add_argument("--zero-wrench-weight", type=float, default=1.0, help="No-contact physical zero wrench loss weight")
+    parser.add_argument("--contact-off-threshold", type=float, help="Contact-aware hysteresis release threshold (default .4)")
+    parser.add_argument("--contact-on-threshold", type=float, help="Contact-aware hysteresis onset threshold (default .6)")
     parser.add_argument("--max-groups", type=int, help="Smoke: at most this many locations per split")
     parser.add_argument("--max-steps", type=int, help="Smoke: limit training batches per epoch")
     parser.add_argument("--max-eval-steps", type=int, help="Smoke: limit validation/test batches")
@@ -51,14 +59,17 @@ def parse_args():
     parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--resume", help="Path to last.pt; retain the original training/split options")
     args = parser.parse_args()
+    if args.disable_mic_channels is not None:
+        if len(set(args.disable_mic_channels)) != len(args.disable_mic_channels) or len(args.disable_mic_channels) == 6:
+            parser.error("--disable-mic-channels must be distinct and leave at least one microphone enabled")
     if args.data_root is None:
         if args.dataset is None:
-            args.dataset = "data_sensor_normal"
+            args.dataset = "data_final" if args.model in (None, "model_triple_head", "model_contact_gated") else "data_sensor_normal"
         if (not args.dataset or args.dataset in (".", "..")
                 or any(char in args.dataset for char in ("/", "\\", ":"))):
             parser.error("--dataset must be a single subfolder name under data/")
         args.data_root = str(Path("data") / args.dataset)
-    if not Path(args.data_root).is_dir():
+    if not args.prepared_root and not Path(args.data_root).is_dir():
         parser.error(f"Data directory does not exist: {args.data_root}")
     return args
 
@@ -66,6 +77,25 @@ def parse_args():
 def main():
     args = parse_args()
     validate_positive_arguments(args)
+    if args.model == "model_contact_gated":
+        from mvts.contact_engine import train_contact_prepared
+        return train_contact_prepared(args)
+    if args.model == "model_triple_head" or (args.model is None and not args.resume):
+        from mvts.dual_rate_engine import train_prepared
+        args.model = "model_triple_head"
+        return train_prepared(args)
+    if args.resume and args.model is None:
+        saved = torch.load(args.resume, map_location="cpu", weights_only=True)
+        if saved.get("model_name") == "model_contact_gated":
+            from mvts.contact_engine import train_contact_prepared
+            args.model = "model_contact_gated"
+            return train_contact_prepared(args)
+        if saved.get("model_name") == "model_triple_head":
+            from mvts.dual_rate_engine import train_prepared
+            args.model = "model_triple_head"
+            return train_prepared(args)
+    if args.disable_mic_channels is not None:
+        raise ValueError("--disable-mic-channels is supported only by model_triple_head")
     start = time.perf_counter()
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)

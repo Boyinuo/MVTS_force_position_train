@@ -18,6 +18,7 @@ class FeatureConfig:
     alignment_mode: str | None = None
     before_samples: int | None = None
     after_samples: int | None = None
+    stft_right_align: bool = False
 
     def __post_init__(self):
         # Defaults and older checkpoints/callers use equal pre/post counts.
@@ -123,6 +124,9 @@ class LogMel(nn.Module):
             raise ValueError(f"Expected ADC [...,{self.config.samples},6], got {tuple(adc.shape)}")
         signal = adc.float().transpose(-1, -2) / self.config.adc_scale
         signal = signal - signal.mean(dim=-1, keepdim=True)
+        if self.config.stft_right_align:
+            span = self.config.n_fft + (self.config.audio_frames - 1) * self.config.hop_length
+            signal = signal[..., -span:]
         leading = signal.shape[:-1]
         spectrum = torch.stft(signal.reshape(-1, signal.shape[-1]),
                               n_fft=self.config.n_fft, hop_length=self.config.hop_length,

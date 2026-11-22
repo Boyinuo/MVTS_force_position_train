@@ -1,3 +1,112 @@
+# 接触感知四预测头（2026-11-21 新增）
+
+新增模型 `mvts/model_contact_gated.py`，通过 `--model model_contact_gated` 选择；原三头模型及其训练命令继续保留。共享视觉/声学编码、联合注意力、GRU(128,256) 后，四个 MLP 分别输出位置3维、六维力6维、滑移增量2维和接触 logit 1维。没有额外的不确定性头、动力学专家或真值接触输入。
+
+接触真值按已确定的采集协议生成：**有效按压 background=0，按压 target/limit=1，快速滑移的全部子事件=1**。不使用 `starts_in_contact`，也不按力阈值重新推翻这些标签。原始实测回归标签保留；background 的位置、六维力和滑移常规回归均设为无效，其中六维力另由无接触零力 loss 监督。按压接触样本继续使用已知的零切向运动标签，滑移沿用实测 XY 增量。
+
+新缓存版本为5，建议目录 `.cache/data_final_v5_faster_contact`。它从 `data_final_v4_faster` 所用的原始来源重新计算图像和 Log-Mel，保留全部六套按压和300条3mm快速滑移轨迹，加入此前排除的按压背景；旧4mm滑移仍排除。`--selection-from-cache` **只读取旧缓存的来源选择，不复制其特征**。原始数据、旧缓存和旧 checkpoint 不覆盖。
+
+完整缓存已生成：**18,203个窗口、63,599个子事件**，其中无接触背景4,783个、接触事件58,816个。按压为13,159个单步窗口（原8,376个接触样本+背景），滑移为5,044个十步窗口、50,440个子事件。拒绝记录0条。默认划分的训练/验证/测试事件数为44,175 / 9,635 / 9,789；对应背景数3,349 / 714 / 720。
+
+全量验收已通过：原13,420个窗口全部保留，原有回归标签不变，重新计算的原有 Log-Mel 与旧缓存比较的最大绝对差为0，全部事件的因果时序及接触监督掩码正确。完整结果保存在新缓存 `verification.json`。
+
+```powershell
+# 完整重新预处理；output 必须是尚不存在的新目录
+uv run preprocess.py --contact-aware --selection-from-cache .cache/data_final_v4_faster --output .cache/data_final_v5_faster_contact
+
+# 对生成的缓存检查标签、掩码、因果时序及原有样本/特征的一致性
+uv run verify_contact_cache.py --prepared-root .cache/data_final_v5_faster_contact --baseline .cache/data_final_v4_faster --compare-audio
+
+# 启动独立的新训练（不要 resume 三头模型）
+uv run train.py --model model_contact_gated --prepared-root .cache/data_final_v5_faster_contact --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/contact_gated_faster
+
+# 评估新 checkpoint
+uv run evaluate.py --checkpoint runs/contact_gated_faster/best.pt --prepared-root .cache/data_final_v5_faster_contact --device cuda --output runs/contact_gated_faster/evaluation
+```
+
+损失包括三项带真值有效性掩码的 Smooth L1、接触 BCE 和无接触物理零六维力损失；相应权重为 `--position-weight`、`--wrench-weight`、`--slip-weight`、`--contact-weight`、`--zero-wrench-weight`，默认均为1。零力 loss 使用**门控前的反归一化预测**，按各力/力矩维度的训练集标准差缩放；掩码来自接触真值，不能靠预测无接触逃避回归。归一化只拟合训练划分，位置等回归统计不包含无效背景值。BCE 类别权重由训练窗口类别组成确定，与1步按压/10步滑移分别取均值的批次训练方式一致；事件类别计数另行记录。
+
+推理的双阈值滞回默认 `off=.4, initial=.5, on=.6`，可用 `--contact-off-threshold` / `--contact-on-threshold` 调整两端阈值（须满足 off < .5 < on）。状态比较使用**预测**的上一状态，四种转移为 `0=00`、`1=01`、`2=10`、`3=11`；`-1` 表示缺少连续历史。无接触时物理六维力严格为0，接触位置/滑移用数值0占位并返回 `position_valid` / `slip_valid`；不能把占位当物理真值。建立接触时初始化滑移参考，首步或缺历史时滑移无效。**接触切换不清空 GRU**；新轨迹/数据中断则重置两个状态。稀疏按压事件仍相互独立，不把它们拼成伪150Hz序列；滑移记录首步已经接触时不会被标成建立事件。
+
+程序接口：`forward()` / `forward_sequence()` 返回标准化空间的原始三项回归、`contact_logits` 和 `contact_probability`。调用 `model.set_normalization(stats)` 后，`model.gate_outputs(result, previous_contact)` 返回物理单位的 `position_physical`、`wrench_physical`、`slip_physical`、有效性、转移和 `last_contact`。`model.eval(); model.step(...)` 自动缓存视觉 token、GRU 隐状态和预测接触状态，并返回上述门控输出；新轨迹调用 `reset_state()`。归一化保存在模型权重中，未配置时禁止物理门控。`--disable-mic-channels 5` 等通道选择继续支持。
+
+`predict.py --state-in/--state-out` 为新模型同时传递 hidden 与预测 contact_state，不从原始 NPZ 读取接触真值。`--previous-contact` 如使用，语义必须是上一预测步的**预测状态**；缺历史默认未知。新模型 JSON/CSV 包含接触概率、接触状态、转移、位置/滑移有效性；评估同时报告原始回归误差、门控误差、接触混淆矩阵/平衡准确率及无接触残余力，避免只看多数类准确率。
+
+当前数据足以训练这版分类与规则门控，不需要额外补采。建立/脱离瞬间的检测延迟和专用动力学残差精度仍不属于现有数据已验证的结论。小规模流程验证结果见 `TEST_REPORT.md`。
+
+---
+
+# 三预测头统一训练（2026-11-20 更新）
+
+当前默认模型为 `mvts/model_triple_head.py`。按图片实现：视觉 ResNet-18 经 4×4 池化形成 16×128 token；共享单通道声学 ResNet-18 分别编码六路麦克风，频率维池化并对麦克风取均值形成 28×128 token；最后一个声学 token 产生 Query，44 个声学/视觉 token 组成 Key/Value；融合结果送入 GRU(128,256)，三个 MLP 分别输出位置3维、六维力6维、滑移位移2维。图中虚线的接触概率/不确定性分支是可选项，此次没有启用。
+
+网络输入只有图像和音频；六维力、位置、滑移位移均为监督真值。默认随机初始化，不下载预训练权重。
+
+- **按压：每张图像只取导出包中最后一条（当前）六维力，以及该条力之前4000点/通道音频；前9条力不用于训练。** 每个按压事件只有1个样本，滑移标签严格为 `[0,0]`，独立事件之间重置 GRU。
+- **滑移：** 每对真正相邻图像在半开区间 `[t_j,t_(j+1))` 形成10个等分子事件，包含左端图像时刻和9个内部时刻，不重复右端。每个子事件使用最新可用的左端图像、事件之前4000点/通道音频，以及该时刻之前最近的实测六维力标签。400Hz到约150Hz存在量化偏差，缓存记录 `force_age_ns`；超过3ms的配对排除。
+- 滑移位置由实测位置在子事件时刻插值得到，滑移标签是当前位置减上一子事件位置的 x、y 分量（mm）；不使用整段位移，也不跨轨迹做差。按实际相机间隔十等分，所以150Hz是名义频率，真实时间戳抖动被保留。缺少历史音频、存在采样缺口、裁剪不完整的区间会排除并写入报告，不补零。
+- 音频50kHz，4000点为80ms。STFT `n_fft=512, hop=128, center=False`，使用窗口最右侧3968点，输出64×28 Log-Mel，避免忽略最后32点。
+- 训练按完整轨迹/位置分组划分，按压和滑移分别分层。GRU在同一滑移轨迹内跨窗口携带状态，窗口间截断梯度；按压1步和滑移10步的批次交替训练，批内长度一致。每张新图像在一个窗口内只编码一次。流式 `model.eval(); model.step(...)` 缓存视觉 token 和 GRU 状态，新轨迹调用 `reset_state()`。
+- `sensor3_probe5mm_slide_training_20261113` 按用户要求排除；其他5mm按压数据继续保留。
+
+建议一次性预处理全部原始数据：缓存原始尺度 Log-Mel、缩放图像、标签、时间戳和配对索引，之后改网络时直接复用。**不缓存训练中的视觉特征，也不使用全量数据拟合归一化**；归一化只在训练划分上拟合。修改网络层数、注意力和预测头无需重新处理；修改对齐、采样率、音频窗口或 STFT 时需生成新缓存。原始数据更新时也应生成新的缓存目录；完整缓存不会被覆盖。
+
+本次全量缓存已经生成在 `.cache/data_final_v4`（约7.34GB）：8376个按压样本、12599个滑移图像区间，共134366个子事件。可以直接执行下面的训练命令，无需再次预处理。测试范围与结果见 `TEST_REPORT.md`。
+
+另有筛选缓存 `.cache/data_final_v4_small`：仅保留 `sensor3_probe4mm_dynamic_training_20261119`（1199个）和 `sensor3_probe4mm_staircase_training_20261119`（1599个）按压样本；500条滑移轨迹、12599个区间、125990个滑移子事件全部保留，总计128788个子事件。新缓存独立复制图像和事件文件，原缓存保持完整。新数据集需启动新训练运行，重新拟合训练集归一化，不使用旧数据集的 `--resume`。
+
+```powershell
+# 筛选缓存的训练与验证
+uv run train.py --prepared-root .cache/data_final_v4_small --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_small
+
+# 需要重新生成时，output 指定一个尚不存在的新目录
+uv run preprocess.py --from-cache .cache/data_final_v4 --press-source sensor3_probe4mm_dynamic_training_20261119 --press-source sensor3_probe4mm_staircase_training_20261119 --output .cache/data_final_v4_small
+```
+
+该筛选主要减少按压来源；由于滑移全部保留，总子事件数只减少约4.2%，整体训练提速幅度可能有限。
+
+2026-11-21 新增缓存 `.cache/data_final_v4_faster`：按压使用全部六套来源；滑移仅选择 `sensor3_probe3mm_fast_slide_fullframes_training_20261121`，不包含旧4mm滑移。预处理同时兼容原始 `attempts/` 和整理导出的 `trajectories/` 目录，十等分、因果音频、位置插值和滑移差分规则相同，六路音频均保留。
+
+滑移音频先按同一轨迹拼接连续时间轴，再取每个子事件之前4000点，不受当前相邻图像区间边界限制。80ms音频窗口可以向前跨一个或多个图像区间，不会跨不同轨迹或真实采样缺口；轨迹起始确实不足历史时，相应不完整区间会排除。该缓存包含8376个按压样本，以及300条快速滑移轨迹的5044个有效图像区间、50440个滑移子事件，总计58816个子事件；数据清单与验收结果见缓存内 `report.json` 和 `verification.json`。
+
+```powershell
+# 生成指定快速滑移来源 + 全部按压；output 必须使用新的完整缓存目录
+uv run preprocess.py --data-root data/data_final --slide-source sensor3_probe3mm_fast_slide_fullframes_training_20261121 --output .cache/data_final_v4_faster
+
+# 使用该缓存开始独立训练，训练集归一化会重新拟合
+uv run train.py --prepared-root .cache/data_final_v4_faster --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_faster
+```
+
+屏蔽第五路麦克风无需重建缓存：训练命令增加 `--disable-mic-channels 5`（编号从1开始），并使用新的输出目录，例如 `--output runs/triple_head_no_mic5`。模型在声学编码前排除该路，对剩余5路特征求平均，缓存仍保持6路。多路可写 `--disable-mic-channels 2 5`，至少保留一路。选择保存在模型配置和checkpoint中，评估、推理、测速及恢复训练会自动沿用；恢复时显式指定不同通道会报错。不能对原六路实验的 `last.pt` 直接添加屏蔽参数继续训练。
+
+单事件推理延迟可在停止GPU训练后测量：`uv run benchmark_inference.py --device cuda --iterations 200 --warmup 30 --output runs/inference_latency_cuda.json`。默认使用 `runs/triple_head_small/best.pt`，同时区分视觉token复用/刷新、纯网络/包含内存数据预处理。此次4070 SUPER实测纯网络平均约2.99ms/4.66ms；包含预处理约3.70ms/9.98ms。详细范围、P95和150Hz预算限制见 `TEST_REPORT.md`。
+
+```powershell
+# 一次性全量预处理，原始 data 不修改
+.venv/Scripts/python.exe preprocess.py --data-root data/data_final --output .cache/data_final_v4 --skip-unsupported
+
+# 训练；正式训练去掉所有 max-* 限制
+.venv/Scripts/python.exe train.py --model model_triple_head --prepared-root .cache/data_final_v4 --device cuda --epochs 30 --batch-size 2 --output runs/triple_head
+
+# 评估保存的完整测试划分
+.venv/Scripts/python.exe evaluate.py --checkpoint runs/triple_head/best.pt --prepared-root .cache/data_final_v4 --device cuda --output runs/triple_head/evaluation
+
+# 恢复训练时保留原来的 batch-size、max-* 和损失权重等参数
+.venv/Scripts/python.exe train.py --prepared-root .cache/data_final_v4 --device cuda --epochs 40 --batch-size 2 --output runs/triple_head --resume runs/triple_head/last.pt
+
+# 原始按压 NPZ：默认只预测当前最后一组
+.venv/Scripts/python.exe predict.py --checkpoint runs/triple_head/best.pt --image PATH_TO_IMAGE --npz PATH_TO_PRESS_NPZ --output runs/press_prediction.json
+
+# 缓存滑移窗口：已包含跨原始区间的历史音频
+.venv/Scripts/python.exe predict.py --checkpoint runs/triple_head/best.pt --image CACHE_IMAGE_PATH --prepared-window CACHE_EVENTS_NPZ --state-out runs/state.pt --output runs/slide_prediction.json
+```
+
+`predict.py --state-in/--state-out` 在相邻滑移窗口间传递 GRU 状态；新轨迹不要传入上一轨迹状态。在线应用优先使用 `model.step`，新相机帧到达时提供图像，其余子事件复用缓存。`--force-index` 仍允许显式选择原始按压包中某一组，但默认只预测当前组。输出11维，单位为位置/位移 mm、力 N、力矩 N*m。
+
+数据质量边界：相机使用主机读帧完成时间，没有真实曝光时间；按压的“当前力”沿用采集端关联，是图像时刻之前最近一条力。不能据此宣称硬件严格同步，`--strict-timing` 会明确拒绝。数据排除和时间对齐说明见缓存 `report.json`。下面保留旧版说明及历史；旧模型、2000点音频和双头相关段落不适用于当前默认模型。
+
+---
+
 # MVTS 视觉声学触觉训练
 
 根据提供的网络图、`阶梯式与动态法向按压采集方案.docx` 和 `data/` 事件导出，实现位置与六维力联合回归。当前用途是用尚未采齐的数据验证训练 pipeline。默认两个 ResNet 从随机权重开始，不自动下载预训练模型。
@@ -14,7 +123,7 @@ uv run --frozen pytest -q
 
 迁移时复制代码、`pyproject.toml`、`uv.lock`、`.python-version` 和 `data/`，在目标机器运行 `uv sync --locked`；不要直接搬运 `.venv`。部署时不需要测试依赖可用 `uv sync --locked --no-dev`。`--link-mode copy` 适用于 uv 缓存与项目不在同一盘符的 Windows 环境。
 
-默认环境现已切换为官方 **CUDA 12.6 版 PyTorch**，由 `pyproject.toml` 的 `pytorch-cu126` 索引和 `uv.lock` 固定。目标平台为带兼容 NVIDIA 驱动的 Windows / Linux；本机 RTX 3060 Laptop GPU（6 GB）、驱动 572.83。安装的是 CUDA 12.6 runtime 的 wheel，不要求另外安装完整 CUDA Toolkit。版本选择依据 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/) 与 [NVIDIA 驱动兼容说明](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)。
+默认环境使用官方 **CUDA 12.6 版 PyTorch**，由 `pyproject.toml` 的 `pytorch-cu126` 索引和 `uv.lock` 固定。目标平台为带兼容 NVIDIA 驱动的 Windows / Linux；当前部署机器为 RTX 4070 SUPER（12 GB，计算能力 8.9）、驱动 610.88。新驱动向后兼容 CUDA 12.6；`nvidia-smi` 显示的 CUDA 13.3 表示驱动支持的 CUDA 版本，不要求 wheel 使用相同版本。安装的是 CUDA 12.6 runtime 的 wheel，不要求另外安装完整 CUDA Toolkit。迁移时应重新检查目标机器的 GPU、驱动以及实际 CUDA 运算。版本选择依据 [PyTorch 官方安装说明](https://pytorch.org/get-started/previous-versions/) 与 [NVIDIA 驱动兼容说明](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html)。
 
 默认 `--device auto` 会在 CUDA 可用时使用 GPU，迁移到无兼容 GPU 的机器时回退 CPU；希望保证此次训练确实使用 GPU，可显式指定 `--device cuda`，不可用时直接报错。CUDA wheel 也支持 `--device cpu`。训练配置和汇总会记录实际设备、GPU 名称与 CUDA runtime 版本。
 

@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--data-root", default="data")
+    parser.add_argument("--prepared-root", help="Prepared triple-head cache")
     parser.add_argument("--output", default="runs/evaluation")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
@@ -24,6 +25,39 @@ def main():
     torch.set_num_threads(4)
     device = choose_device(args.device)
     model, checkpoint, config = load_checkpoint(args.checkpoint, device)
+    if model.model_name == "model_contact_gated":
+        from mvts.contact_data import read_contact_prepared, DEFAULT_CONTACT_CACHE
+        from mvts.contact_engine import make_contact_loader, run_contact_epoch, save_contact_predictions, LOSS_NAMES
+        records,_ = read_contact_prepared(args.prepared_root or DEFAULT_CONTACT_CACHE)
+        by_id = {r["id"]:r for r in records}
+        records = [by_id[k] for k in checkpoint["split_ids"]["test"]]
+        if ([r["target"] for r in records] != checkpoint["split_labels"]["test"] or
+                [r["supervision_sha256"] for r in records] != checkpoint["split_supervision"]["test"]):
+            raise ValueError("Contact test regression labels or contact supervision differ from checkpoint")
+        loader = make_contact_loader(records,checkpoint["stats"],args.batch_size)
+        metrics,values = run_contact_epoch(model,loader,device,checkpoint["stats"],progress_label="Evaluation",
+            **{k+"_weight":checkpoint["args"][k+"_weight"] for k in LOSS_NAMES})
+        write_json(output/"metrics.json",metrics)
+        save_contact_predictions(output/"predictions.csv",values)
+        print(metrics)
+        return
+    if model.model_name == "model_triple_head":
+        from mvts.dual_rate_data import read_prepared, TARGET_NAMES as names
+        from mvts.dual_rate_engine import make_loader, run_sequence_epoch
+        records, _ = read_prepared(args.prepared_root or ".cache/data_final_v4")
+        by_id = {r["id"]: r for r in records}
+        records = [by_id[k] for k in checkpoint["split_ids"]["test"]]
+        if [r["target"] for r in records] != checkpoint["split_labels"]["test"]:
+            raise ValueError("Test labels differ from training checkpoint")
+        loader = make_loader(records, checkpoint["stats"], args.batch_size)
+        metrics, values = run_sequence_epoch(model, loader, device, checkpoint["stats"],
+            position_weight=checkpoint["args"]["position_weight"],
+            wrench_weight=checkpoint["args"]["wrench_weight"],
+            slip_weight=checkpoint["args"]["slip_weight"], progress_label="Evaluation")
+        write_json(output / "metrics.json", metrics)
+        save_predictions(output / "predictions.csv", values, target_names=names)
+        print(metrics)
+        return
     records, report = discover_records(args.data_root, feature_config=config)
     write_json(output / "data_report.json", report)
     if report["rejected"]:

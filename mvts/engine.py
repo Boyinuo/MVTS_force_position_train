@@ -104,11 +104,12 @@ def run_epoch(model, loader, device, stats, optimizer=None, max_steps=None,
     return metrics, (identifiers, predictions, targets)
 
 
-def save_predictions(path, values):
+def save_predictions(path, values, target_names=None):
+    target_names = target_names or TARGET_NAMES
     identifiers, predictions, targets = values
     with Path(path).open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["id"] + [f"true_{k}" for k in TARGET_NAMES] + [f"pred_{k}" for k in TARGET_NAMES])
+        writer.writerow(["id"] + [f"true_{k}" for k in target_names] + [f"pred_{k}" for k in target_names])
         for identifier, prediction, target in zip(identifiers, predictions, targets):
             writer.writerow([identifier] + target.tolist() + prediction.tolist())
 
@@ -120,6 +121,12 @@ def load_checkpoint(path, device="cpu"):
     # Checkpoints created before model selection use the original fusion architecture.
     model = build_model(checkpoint.get("model_name", "model"), checkpoint["model_config"])
     model.load_state_dict(checkpoint["model"])
+    if getattr(model,"model_name",None) == "model_contact_gated" and "stats" in checkpoint:
+        saved_mean = torch.tensor(checkpoint["stats"]["target_mean"],dtype=model.target_mean.dtype)
+        saved_std = torch.tensor(checkpoint["stats"]["target_std"],dtype=model.target_std.dtype)
+        if (not model.normalization_ready.item() or not torch.equal(model.target_mean,saved_mean)
+                or not torch.equal(model.target_std,saved_std)):
+            raise ValueError("Contact checkpoint physical normalization differs from saved stats")
     return model.to(device), checkpoint, FeatureConfig(**checkpoint["feature_config"])
 
 
@@ -133,6 +140,7 @@ def save_checkpoint(path, model, optimizer, scheduler, epoch, best_loss, stats, 
         "feature_config": feature_config.to_dict(), "args": vars(args),
         "split_ids": {k: [r["id"] for r in records] for k, records in split.items()},
         "split_labels": {k: [r["target"] for r in records] for k, records in split.items()},
+        "split_supervision": {k: [r.get("supervision_sha256") for r in records] for k,records in split.items()},
         "torch_rng": torch.get_rng_state(), "loader_rng": generator.get_state(),
         "cuda_rng": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
         "best_model_path": str(best_model_path),
@@ -152,8 +160,12 @@ def validate_positive_arguments(args):
         value = getattr(args, name)
         if value is not None and value < 1:
             raise ValueError(f"{name} must be positive")
-    for name in ("lr", "position_weight", "wrench_weight"):
+    for name in ("lr", "position_weight", "wrench_weight", "slip_weight"):
         value = getattr(args, name)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be positive and finite")
+    for name in ("contact_weight", "zero_wrench_weight"):
+        value = getattr(args,name,1.)
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be positive and finite")
     if args.workers < 0 or not math.isfinite(args.weight_decay) or args.weight_decay < 0:

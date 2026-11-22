@@ -3,7 +3,7 @@ from importlib import import_module
 from pathlib import Path
 
 
-DEFAULT_MODEL = "model_sensor_final"
+DEFAULT_MODEL = "model_triple_head"
 LEGACY_MODELS = {"model": "model_sensor_nomal",
                  "model_standard_audio": "model_standard_audio_sensor_nomal"}
 

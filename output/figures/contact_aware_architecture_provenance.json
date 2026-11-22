@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-21",
+  "timezone": "Asia/Shanghai",
+  "tool": "built-in image_gen.imagegen",
+  "model_version": "not exposed by tool",
+  "role": "Proposed architecture schematic; internal design draft",
+  "reference": "User-provided architecture image",
+  "reference_rights": "Provided by user for requested redraw; ownership not independently verified",
+  "initial_prompt": "contact_aware_architecture_prompt.txt",
+  "correction_prompt": "contact_aware_architecture_correction_prompt.txt",
+  "initial_candidate": "contact_aware_architecture_v1.png",
+  "selected_output": "contact_aware_architecture.png",
+  "corrections": [
+    "Route GRU hidden-state feedback from current h_t through a one-step memory cache, not from attention features",
+    "Show both current contact-state cache update and delayed previous-state feedback",
+    "Align causal audio window endpoints to prediction timestamps"
+  ],
+  "review": "Visually checked dimensions, four-head fanout, delayed state caches, physical-unit output gating, transition table, training-only losses and ground-truth separation",
+  "limitations": "Raster AI-generated schematic, not editable model code or quantitative evidence; target-journal submission eligibility unverified"
+}

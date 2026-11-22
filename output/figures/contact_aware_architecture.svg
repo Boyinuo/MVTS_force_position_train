@@ -1,0 +1,496 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="1560" viewBox="0 0 3200 1560" role="img" aria-labelledby="figure-title figure-description">
+<title id="figure-title">Contact-Aware Dual-Rate Visual–Acoustic State Estimation</title>
+<desc id="figure-description">Editable vector schematic. Causal visual and acoustic encoders feed joint cross-attention and a stateful GRU. Four learned heads predict contact, position, wrench and slip. A separate delayed contact-state cache supports deterministic transition logic and physical-unit output gating. Ground-truth contact labels are used only in training losses. Waveforms and tactile icons are illustrative.</desc>
+<metadata>Proposed architecture, vector reconstruction, 2026-11-21. No measured data or performance results are depicted.</metadata>
+<defs>
+<marker id="arrow-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2d2d39"/></marker>
+<marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#007d82"/></marker>
+<marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b87917"/></marker>
+<linearGradient id="sensor-field" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0f7887"/><stop offset=".6" stop-color="#237e9d"/><stop offset="1" stop-color="#5c4487"/></linearGradient>
+<radialGradient id="contact-glow"><stop offset="0" stop-color="#efdf42" stop-opacity=".95"/><stop offset=".45" stop-color="#c4d73f" stop-opacity=".65"/><stop offset="1" stop-color="#7bc36b" stop-opacity="0"/></radialGradient>
+</defs>
+<style>text{font-family:"Times New Roman","Cambria","DejaVu Serif",serif} .small{font-size:22px} path,rect,line,ellipse,circle{vector-effect:non-scaling-stroke}</style>
+<rect x="0" y="0" width="3200" height="1560" rx="0" fill="#fff" stroke="none" stroke-width="2" />
+<text id="label-1" x="1600" y="65" font-size="47" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Contact-Aware Dual-Rate Visual–Acoustic State Estimation</text>
+<path d="M 35 53 L 520 53" fill="none" stroke="#2d2d39" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 2680 53 L 3165 53" fill="none" stroke="#2d2d39" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"  />
+<g id="panel-a">
+<rect x="25" y="120" width="480" height="1060" rx="20" fill="#fff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-2" x="45" y="163" font-size="32" font-weight="bold" text-anchor="start" fill="#2d2d39" >(a) Causal dual-rate inputs</text>
+</g>
+<g id="panel-b">
+<rect x="525" y="120" width="1260" height="1060" rx="20" fill="#fff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-3" x="545" y="163" font-size="32" font-weight="bold" text-anchor="start" fill="#2d2d39" >(b) Shared encoding and temporal fusion</text>
+</g>
+<g id="panel-c">
+<rect x="1805" y="120" width="1370" height="1060" rx="20" fill="#fff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-4" x="1825" y="163" font-size="32" font-weight="bold" text-anchor="start" fill="#2d2d39" >(c) Contact prediction and rule-based output gating</text>
+</g>
+<g id="panel-d">
+<rect x="25" y="1205" width="3150" height="300" rx="20" fill="#fff" stroke="#bec6d6" stroke-width="2" stroke-dasharray="9 6"/>
+<text id="label-5" x="45" y="1248" font-size="32" font-weight="bold" text-anchor="start" fill="#2d2d39" >(d) Training supervision · ground truth is not an inference input</text>
+</g>
+<g id="causal-timing">
+<rect x="45" y="190" width="440" height="310" rx="14" fill="#fafdfc" stroke="#bec6d6" stroke-width="2" />
+<text id="label-6" x="265" y="229" font-size="30" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Camera frames · 15 Hz</text>
+<g id="camera-previous">
+<rect x="95" y="263" width="95" height="133" rx="16" fill="#e5f0ec" stroke="#85b69c" stroke-width="2" />
+<rect x="102" y="270" width="81" height="119" rx="12" fill="url(#sensor-field)" stroke="#4e9199" stroke-width="2" />
+<ellipse cx="145.35" cy="338.81" rx="29.45" ry="31.919999999999998" fill="url(#contact-glow)"/>
+<path d="M 110.00 284.97 L 112.17 284.95 L 114.33 284.91 L 116.50 284.84 L 118.67 284.74 L 120.83 284.58 L 123.00 284.35 L 125.17 284.04 L 127.33 283.65 L 129.50 283.16 L 131.67 282.60 L 133.83 282.00 L 136.00 281.39 L 138.17 280.84 L 140.33 280.39 L 142.50 280.10 L 144.67 280.00 L 146.83 280.10 L 149.00 280.39 L 151.17 280.84 L 153.33 281.39 L 155.50 282.00 L 157.67 282.60 L 159.83 283.16 L 162.00 283.65 L 164.17 284.04 L 166.33 284.35 L 168.50 284.58 L 170.67 284.74 L 172.83 284.84 L 175.00 284.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="285" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="285" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="285" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="285" r="2.5" fill="#176277"/>
+<circle cx="172" cy="285" r="2.5" fill="#176277"/>
+<path d="M 110.00 299.81 L 112.17 299.78 L 114.33 299.74 L 116.50 299.67 L 118.67 299.57 L 120.83 299.41 L 123.00 299.18 L 125.17 298.88 L 127.33 298.48 L 129.50 297.99 L 131.67 297.44 L 133.83 296.83 L 136.00 296.23 L 138.17 295.67 L 140.33 295.23 L 142.50 294.93 L 144.67 294.83 L 146.83 294.93 L 149.00 295.23 L 151.17 295.67 L 153.33 296.23 L 155.50 296.83 L 157.67 297.44 L 159.83 297.99 L 162.00 298.48 L 164.17 298.88 L 166.33 299.18 L 168.50 299.41 L 170.67 299.57 L 172.83 299.67 L 175.00 299.74 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="172" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<path d="M 110.00 314.64 L 112.17 314.62 L 114.33 314.58 L 116.50 314.51 L 118.67 314.40 L 120.83 314.24 L 123.00 314.02 L 125.17 313.71 L 127.33 313.31 L 129.50 312.83 L 131.67 312.27 L 133.83 311.66 L 136.00 311.06 L 138.17 310.51 L 140.33 310.06 L 142.50 309.77 L 144.67 309.67 L 146.83 309.77 L 149.00 310.06 L 151.17 310.51 L 153.33 311.06 L 155.50 311.66 L 157.67 312.27 L 159.83 312.83 L 162.00 313.31 L 164.17 313.71 L 166.33 314.02 L 168.50 314.24 L 170.67 314.40 L 172.83 314.51 L 175.00 314.58 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="172" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<path d="M 110.00 329.47 L 112.17 329.45 L 114.33 329.41 L 116.50 329.34 L 118.67 329.24 L 120.83 329.08 L 123.00 328.85 L 125.17 328.54 L 127.33 328.15 L 129.50 327.66 L 131.67 327.10 L 133.83 326.50 L 136.00 325.89 L 138.17 325.34 L 140.33 324.89 L 142.50 324.60 L 144.67 324.50 L 146.83 324.60 L 149.00 324.89 L 151.17 325.34 L 153.33 325.89 L 155.50 326.50 L 157.67 327.10 L 159.83 327.66 L 162.00 328.15 L 164.17 328.54 L 166.33 328.85 L 168.50 329.08 L 170.67 329.24 L 172.83 329.34 L 175.00 329.41 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="172" cy="329.5" r="2.5" fill="#176277"/>
+<path d="M 110.00 344.31 L 112.17 344.28 L 114.33 344.24 L 116.50 344.17 L 118.67 344.07 L 120.83 343.91 L 123.00 343.68 L 125.17 343.38 L 127.33 342.98 L 129.50 342.49 L 131.67 341.94 L 133.83 341.33 L 136.00 340.73 L 138.17 340.17 L 140.33 339.73 L 142.50 339.43 L 144.67 339.33 L 146.83 339.43 L 149.00 339.73 L 151.17 340.17 L 153.33 340.73 L 155.50 341.33 L 157.67 341.94 L 159.83 342.49 L 162.00 342.98 L 164.17 343.38 L 166.33 343.68 L 168.50 343.91 L 170.67 344.07 L 172.83 344.17 L 175.00 344.24 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="172" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<path d="M 110.00 359.14 L 112.17 359.12 L 114.33 359.08 L 116.50 359.01 L 118.67 358.90 L 120.83 358.74 L 123.00 358.52 L 125.17 358.21 L 127.33 357.81 L 129.50 357.33 L 131.67 356.77 L 133.83 356.16 L 136.00 355.56 L 138.17 355.01 L 140.33 354.56 L 142.50 354.27 L 144.67 354.17 L 146.83 354.27 L 149.00 354.56 L 151.17 355.01 L 153.33 355.56 L 155.50 356.16 L 157.67 356.77 L 159.83 357.33 L 162.00 357.81 L 164.17 358.21 L 166.33 358.52 L 168.50 358.74 L 170.67 358.90 L 172.83 359.01 L 175.00 359.08 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="172" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<path d="M 110.00 373.97 L 112.17 373.95 L 114.33 373.91 L 116.50 373.84 L 118.67 373.74 L 120.83 373.58 L 123.00 373.35 L 125.17 373.04 L 127.33 372.65 L 129.50 372.16 L 131.67 371.60 L 133.83 371.00 L 136.00 370.39 L 138.17 369.84 L 140.33 369.39 L 142.50 369.10 L 144.67 369.00 L 146.83 369.10 L 149.00 369.39 L 151.17 369.84 L 153.33 370.39 L 155.50 371.00 L 157.67 371.60 L 159.83 372.16 L 162.00 372.65 L 164.17 373.04 L 166.33 373.35 L 168.50 373.58 L 170.67 373.74 L 172.83 373.84 L 175.00 373.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="113" cy="374" r="2.5" fill="#176277"/>
+<circle cx="127.75" cy="374" r="2.5" fill="#176277"/>
+<circle cx="142.5" cy="374" r="2.5" fill="#176277"/>
+<circle cx="157.25" cy="374" r="2.5" fill="#176277"/>
+<circle cx="172" cy="374" r="2.5" fill="#176277"/>
+</g>
+<g id="camera-current">
+<rect x="345" y="263" width="95" height="133" rx="16" fill="#e5f0ec" stroke="#85b69c" stroke-width="2" />
+<rect x="352" y="270" width="81" height="119" rx="12" fill="url(#sensor-field)" stroke="#4e9199" stroke-width="2" />
+<ellipse cx="395.35" cy="338.81" rx="29.45" ry="31.919999999999998" fill="url(#contact-glow)"/>
+<path d="M 360.00 284.97 L 362.17 284.95 L 364.33 284.91 L 366.50 284.84 L 368.67 284.74 L 370.83 284.58 L 373.00 284.35 L 375.17 284.04 L 377.33 283.65 L 379.50 283.16 L 381.67 282.60 L 383.83 282.00 L 386.00 281.39 L 388.17 280.84 L 390.33 280.39 L 392.50 280.10 L 394.67 280.00 L 396.83 280.10 L 399.00 280.39 L 401.17 280.84 L 403.33 281.39 L 405.50 282.00 L 407.67 282.60 L 409.83 283.16 L 412.00 283.65 L 414.17 284.04 L 416.33 284.35 L 418.50 284.58 L 420.67 284.74 L 422.83 284.84 L 425.00 284.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="285" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="285" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="285" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="285" r="2.5" fill="#176277"/>
+<circle cx="422" cy="285" r="2.5" fill="#176277"/>
+<path d="M 360.00 299.81 L 362.17 299.78 L 364.33 299.74 L 366.50 299.67 L 368.67 299.57 L 370.83 299.41 L 373.00 299.18 L 375.17 298.88 L 377.33 298.48 L 379.50 297.99 L 381.67 297.44 L 383.83 296.83 L 386.00 296.23 L 388.17 295.67 L 390.33 295.23 L 392.50 294.93 L 394.67 294.83 L 396.83 294.93 L 399.00 295.23 L 401.17 295.67 L 403.33 296.23 L 405.50 296.83 L 407.67 297.44 L 409.83 297.99 L 412.00 298.48 L 414.17 298.88 L 416.33 299.18 L 418.50 299.41 L 420.67 299.57 L 422.83 299.67 L 425.00 299.74 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<circle cx="422" cy="299.8333333333333" r="2.5" fill="#176277"/>
+<path d="M 360.00 314.64 L 362.17 314.62 L 364.33 314.58 L 366.50 314.51 L 368.67 314.40 L 370.83 314.24 L 373.00 314.02 L 375.17 313.71 L 377.33 313.31 L 379.50 312.83 L 381.67 312.27 L 383.83 311.66 L 386.00 311.06 L 388.17 310.51 L 390.33 310.06 L 392.50 309.77 L 394.67 309.67 L 396.83 309.77 L 399.00 310.06 L 401.17 310.51 L 403.33 311.06 L 405.50 311.66 L 407.67 312.27 L 409.83 312.83 L 412.00 313.31 L 414.17 313.71 L 416.33 314.02 L 418.50 314.24 L 420.67 314.40 L 422.83 314.51 L 425.00 314.58 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="422" cy="314.6666666666667" r="2.5" fill="#176277"/>
+<path d="M 360.00 329.47 L 362.17 329.45 L 364.33 329.41 L 366.50 329.34 L 368.67 329.24 L 370.83 329.08 L 373.00 328.85 L 375.17 328.54 L 377.33 328.15 L 379.50 327.66 L 381.67 327.10 L 383.83 326.50 L 386.00 325.89 L 388.17 325.34 L 390.33 324.89 L 392.50 324.60 L 394.67 324.50 L 396.83 324.60 L 399.00 324.89 L 401.17 325.34 L 403.33 325.89 L 405.50 326.50 L 407.67 327.10 L 409.83 327.66 L 412.00 328.15 L 414.17 328.54 L 416.33 328.85 L 418.50 329.08 L 420.67 329.24 L 422.83 329.34 L 425.00 329.41 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="329.5" r="2.5" fill="#176277"/>
+<circle cx="422" cy="329.5" r="2.5" fill="#176277"/>
+<path d="M 360.00 344.31 L 362.17 344.28 L 364.33 344.24 L 366.50 344.17 L 368.67 344.07 L 370.83 343.91 L 373.00 343.68 L 375.17 343.38 L 377.33 342.98 L 379.50 342.49 L 381.67 341.94 L 383.83 341.33 L 386.00 340.73 L 388.17 340.17 L 390.33 339.73 L 392.50 339.43 L 394.67 339.33 L 396.83 339.43 L 399.00 339.73 L 401.17 340.17 L 403.33 340.73 L 405.50 341.33 L 407.67 341.94 L 409.83 342.49 L 412.00 342.98 L 414.17 343.38 L 416.33 343.68 L 418.50 343.91 L 420.67 344.07 L 422.83 344.17 L 425.00 344.24 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="422" cy="344.3333333333333" r="2.5" fill="#176277"/>
+<path d="M 360.00 359.14 L 362.17 359.12 L 364.33 359.08 L 366.50 359.01 L 368.67 358.90 L 370.83 358.74 L 373.00 358.52 L 375.17 358.21 L 377.33 357.81 L 379.50 357.33 L 381.67 356.77 L 383.83 356.16 L 386.00 355.56 L 388.17 355.01 L 390.33 354.56 L 392.50 354.27 L 394.67 354.17 L 396.83 354.27 L 399.00 354.56 L 401.17 355.01 L 403.33 355.56 L 405.50 356.16 L 407.67 356.77 L 409.83 357.33 L 412.00 357.81 L 414.17 358.21 L 416.33 358.52 L 418.50 358.74 L 420.67 358.90 L 422.83 359.01 L 425.00 359.08 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<circle cx="422" cy="359.1666666666667" r="2.5" fill="#176277"/>
+<path d="M 360.00 373.97 L 362.17 373.95 L 364.33 373.91 L 366.50 373.84 L 368.67 373.74 L 370.83 373.58 L 373.00 373.35 L 375.17 373.04 L 377.33 372.65 L 379.50 372.16 L 381.67 371.60 L 383.83 371.00 L 386.00 370.39 L 388.17 369.84 L 390.33 369.39 L 392.50 369.10 L 394.67 369.00 L 396.83 369.10 L 399.00 369.39 L 401.17 369.84 L 403.33 370.39 L 405.50 371.00 L 407.67 371.60 L 409.83 372.16 L 412.00 372.65 L 414.17 373.04 L 416.33 373.35 L 418.50 373.58 L 420.67 373.74 L 422.83 373.84 L 425.00 373.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="363" cy="374" r="2.5" fill="#176277"/>
+<circle cx="377.75" cy="374" r="2.5" fill="#176277"/>
+<circle cx="392.5" cy="374" r="2.5" fill="#176277"/>
+<circle cx="407.25" cy="374" r="2.5" fill="#176277"/>
+<circle cx="422" cy="374" r="2.5" fill="#176277"/>
+</g>
+<text id="label-7" x="265" y="326" font-size="42" font-weight="normal" text-anchor="middle" fill="#2d2d39" >···</text>
+<text id="label-8" x="142" y="434" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Iⱼ₋₁</text>
+<text id="label-9" x="392" y="434" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Iⱼ</text>
+<text id="label-10" x="265" y="477" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Reuse the latest available image</text>
+<text id="label-11" x="265" y="530" font-size="30" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Six-channel audio · 50 kHz</text>
+<rect x="75" y="650" width="325" height="180" rx="4" fill="#eee8f7" stroke="#9674b7" stroke-width="2" fill-opacity=".56"/>
+<rect x="102" y="650" width="325" height="180" rx="4" fill="#d9edfb" stroke="#498fc0" stroke-width="2" fill-opacity=".52"/>
+<path d="M 60.00 669.00 L 62.45 670.21 L 64.89 670.08 L 67.34 669.74 L 69.79 669.82 L 72.23 669.05 L 74.68 667.68 L 77.13 667.56 L 79.57 668.42 L 82.02 668.75 L 84.47 669.07 L 86.91 670.19 L 89.36 670.64 L 91.81 669.61 L 94.25 668.71 L 96.70 668.59 L 99.15 668.04 L 101.59 667.45 L 104.04 668.27 L 106.49 669.64 L 108.93 669.91 L 111.38 669.82 L 113.83 670.18 L 116.27 669.75 L 118.72 668.27 L 121.17 667.63 L 123.61 668.13 L 126.06 668.31 L 128.51 668.46 L 130.95 669.65 L 133.40 670.63 L 135.85 670.08 L 138.29 669.25 L 140.74 669.08 L 143.19 668.44 L 145.63 667.41 L 148.08 667.70 L 150.53 668.98 L 152.97 669.51 L 155.42 669.62 L 157.87 670.31 L 160.31 670.36 L 162.76 669.00 L 165.21 667.96 L 167.65 668.09 L 170.10 668.05 L 172.55 667.87 L 174.99 668.93 L 177.44 670.36 L 179.89 670.36 L 182.33 669.71 L 184.78 669.65 L 187.23 669.06 L 189.67 667.57 L 192.12 667.19 L 194.57 668.30 L 197.01 668.99 L 199.46 669.22 L 201.91 670.33 L 204.35 671.11 L 206.80 669.91 L 209.25 668.38 L 211.69 668.14 L 214.14 667.76 L 216.59 666.90 L 219.03 667.79 L 221.48 670.08 L 223.93 670.85 L 226.37 670.40 L 228.82 670.72 L 231.27 670.30 L 233.71 667.72 L 236.16 666.00 L 238.61 667.01 L 241.05 667.97 L 243.50 668.17 L 245.95 670.31 L 248.39 672.92 L 250.84 672.01 L 253.29 669.35 L 255.73 668.56 L 258.18 667.51 L 260.63 664.82 L 263.07 664.97 L 265.52 668.95 L 267.97 671.33 L 270.41 671.28 L 272.86 672.70 L 275.31 673.34 L 277.75 669.21 L 280.20 664.90 L 282.65 665.18 L 285.09 666.10 L 287.54 665.62 L 289.99 668.57 L 292.43 673.95 L 294.88 674.59 L 297.33 671.44 L 299.77 670.35 L 302.22 669.00 L 304.67 664.35 L 307.11 662.41 L 309.56 666.39 L 312.01 669.82 L 314.45 670.35 L 316.90 672.71 L 319.35 675.14 L 321.79 671.98 L 324.24 666.87 L 326.69 665.88 L 329.13 666.03 L 331.58 664.57 L 334.03 666.16 L 336.47 671.29 L 338.92 673.41 L 341.37 671.83 L 343.81 671.37 L 346.26 670.88 L 348.71 667.24 L 351.15 664.41 L 353.60 665.98 L 356.05 668.15 L 358.49 668.57 L 360.94 670.27 L 363.39 672.78 L 365.83 672.05 L 368.28 669.18 L 370.73 668.10 L 373.17 667.82 L 375.62 666.42 L 378.07 666.38 L 380.51 668.89 L 382.96 670.65 L 385.41 670.43 L 387.85 670.55 L 390.30 670.82 L 392.75 669.20 L 395.19 667.19 L 397.64 667.23 L 400.09 668.04 L 402.53 668.09 L 404.98 668.85 L 407.43 670.57 L 409.87 670.96 L 412.32 669.78 L 414.77 669.11 L 417.21 668.88 L 419.66 667.79 L 422.11 667.11 L 424.55 668.18 L 427.00 669.42 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 60.00 698.97 L 62.45 699.33 L 64.89 698.78 L 67.34 698.70 L 69.79 698.39 L 72.23 697.09 L 74.68 696.37 L 77.13 697.12 L 79.57 697.82 L 82.02 697.97 L 84.47 698.76 L 86.91 699.65 L 89.36 699.07 L 91.81 697.83 L 94.25 697.49 L 96.70 697.30 L 99.15 696.61 L 101.59 696.85 L 104.04 698.28 L 106.49 699.05 L 108.93 698.84 L 111.38 698.98 L 113.83 698.99 L 116.27 697.77 L 118.72 696.61 L 121.17 696.86 L 123.61 697.40 L 126.06 697.44 L 128.51 698.18 L 130.95 699.45 L 133.40 699.45 L 135.85 698.42 L 138.29 697.98 L 140.74 697.71 L 143.19 696.73 L 145.63 696.41 L 148.08 697.57 L 150.53 698.56 L 152.97 698.63 L 155.42 699.00 L 157.87 699.45 L 160.31 698.53 L 162.76 697.10 L 165.21 696.89 L 167.65 697.16 L 170.10 696.96 L 172.55 697.46 L 174.99 698.99 L 177.44 699.59 L 179.89 698.89 L 182.33 698.51 L 184.78 698.31 L 187.23 697.09 L 189.67 696.09 L 192.12 696.86 L 194.57 697.98 L 197.01 698.23 L 199.46 698.85 L 201.91 699.95 L 204.35 699.48 L 206.80 697.71 L 209.25 696.98 L 211.69 696.98 L 214.14 696.26 L 216.59 696.31 L 219.03 698.36 L 221.48 699.94 L 223.93 699.58 L 226.37 699.36 L 228.82 699.50 L 231.27 697.70 L 233.71 695.26 L 236.16 695.43 L 238.61 696.95 L 241.05 697.31 L 243.50 698.39 L 245.95 701.16 L 248.39 701.72 L 250.84 699.06 L 253.29 697.32 L 255.73 696.94 L 258.18 694.89 L 260.63 693.53 L 263.07 696.52 L 265.52 700.18 L 267.97 700.56 L 270.41 700.85 L 272.86 702.22 L 275.31 699.94 L 277.75 694.82 L 280.20 693.41 L 282.65 695.09 L 285.09 695.14 L 287.54 696.25 L 289.99 701.32 L 292.43 704.25 L 294.88 701.54 L 297.33 699.01 L 299.77 698.43 L 302.22 695.09 L 304.67 691.37 L 307.11 693.60 L 309.56 698.39 L 312.01 699.70 L 314.45 700.66 L 316.90 703.56 L 319.35 702.66 L 321.79 697.17 L 324.24 694.31 L 326.69 694.99 L 329.13 694.28 L 331.58 694.20 L 334.03 698.59 L 336.47 702.58 L 338.92 701.72 L 341.37 700.12 L 343.81 700.04 L 346.26 697.64 L 348.71 693.79 L 351.15 693.86 L 353.60 696.71 L 356.05 697.81 L 358.49 698.58 L 360.94 701.12 L 363.39 701.85 L 365.83 699.10 L 368.28 696.95 L 370.73 696.81 L 373.17 695.96 L 375.62 695.09 L 378.07 696.91 L 380.51 699.49 L 382.96 699.81 L 385.41 699.39 L 387.85 699.75 L 390.30 698.92 L 392.75 696.65 L 395.19 695.84 L 397.64 696.80 L 400.09 697.25 L 402.53 697.52 L 404.98 699.02 L 407.43 700.14 L 409.87 699.27 L 412.32 698.11 L 414.77 697.88 L 417.21 697.22 L 419.66 696.18 L 422.11 696.65 L 424.55 698.17 L 427.00 698.74 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 60.00 728.45 L 62.45 728.00 L 64.89 727.58 L 67.34 727.51 L 69.79 726.57 L 72.23 725.42 L 74.68 725.73 L 77.13 726.74 L 79.57 727.04 L 82.02 727.43 L 84.47 728.43 L 86.91 728.45 L 89.36 727.17 L 91.81 726.39 L 94.25 726.37 L 96.70 725.89 L 99.15 725.63 L 101.59 726.78 L 104.04 728.02 L 106.49 728.01 L 108.93 727.82 L 111.38 728.00 L 113.83 727.27 L 116.27 725.84 L 118.72 725.58 L 121.17 726.30 L 123.61 726.54 L 126.06 726.86 L 128.51 728.07 L 130.95 728.67 L 133.40 727.77 L 135.85 726.93 L 138.29 726.77 L 140.74 726.12 L 143.19 725.37 L 145.63 726.08 L 148.08 727.42 L 150.53 727.76 L 152.97 727.80 L 155.42 728.31 L 157.87 727.97 L 160.31 726.47 L 162.76 725.72 L 165.21 726.09 L 167.65 726.14 L 170.10 726.22 L 172.55 727.47 L 174.99 728.63 L 177.44 728.21 L 179.89 727.46 L 182.33 727.32 L 184.78 726.58 L 187.23 725.29 L 189.67 725.42 L 192.12 726.75 L 194.57 727.34 L 197.01 727.57 L 199.46 728.57 L 201.91 728.83 L 204.35 727.27 L 206.80 725.93 L 209.25 725.94 L 211.69 725.66 L 214.14 725.21 L 216.59 726.57 L 219.03 728.68 L 221.48 728.91 L 223.93 728.22 L 226.37 728.33 L 228.82 727.47 L 231.27 724.95 L 233.71 724.01 L 236.16 725.56 L 238.61 726.55 L 241.05 726.95 L 243.50 729.13 L 245.95 730.90 L 248.39 729.07 L 250.84 726.41 L 253.29 725.87 L 255.73 724.85 L 258.18 722.83 L 260.63 724.18 L 263.07 728.37 L 265.52 730.00 L 267.97 729.53 L 270.41 730.54 L 272.86 730.07 L 275.31 725.42 L 277.75 722.09 L 280.20 723.44 L 282.65 724.67 L 285.09 724.80 L 287.54 728.42 L 289.99 732.96 L 292.43 731.96 L 294.88 728.26 L 297.33 727.20 L 299.77 725.50 L 302.22 721.32 L 304.67 721.11 L 307.11 726.10 L 309.56 729.11 L 312.01 729.31 L 314.45 731.44 L 316.90 732.56 L 319.35 728.09 L 321.79 723.34 L 324.24 723.34 L 326.69 723.87 L 329.13 723.08 L 331.58 725.81 L 334.03 730.89 L 336.47 731.76 L 338.92 729.42 L 341.37 728.75 L 343.81 727.67 L 346.26 723.85 L 348.71 722.08 L 351.15 724.70 L 353.60 726.98 L 356.05 727.39 L 358.49 729.21 L 360.94 731.09 L 363.39 729.30 L 365.83 726.20 L 368.28 725.50 L 370.73 725.36 L 373.17 724.25 L 375.62 724.99 L 378.07 727.86 L 380.51 729.18 L 382.96 728.54 L 385.41 728.51 L 387.85 728.36 L 390.30 726.38 L 392.75 724.71 L 395.19 725.32 L 397.64 726.30 L 400.09 726.47 L 402.53 727.44 L 404.98 728.99 L 407.43 728.80 L 409.87 727.35 L 412.32 726.75 L 414.77 726.49 L 417.21 725.49 L 419.66 725.27 L 422.11 726.69 L 424.55 727.82 L 427.00 727.81 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 60.00 757.31 L 62.45 756.59 L 64.89 756.45 L 67.34 755.96 L 69.79 754.72 L 72.23 754.41 L 74.68 755.45 L 77.13 756.13 L 79.57 756.29 L 82.02 757.06 L 84.47 757.61 L 86.91 756.64 L 89.36 755.43 L 91.81 755.27 L 94.25 755.14 L 96.70 754.66 L 99.15 755.28 L 101.59 756.76 L 104.04 757.23 L 106.49 756.82 L 108.93 756.86 L 111.38 756.61 L 113.83 755.27 L 116.27 754.43 L 118.72 755.03 L 121.17 755.63 L 123.61 755.76 L 126.06 756.61 L 128.51 757.64 L 130.95 757.20 L 133.40 756.04 L 135.85 755.69 L 138.29 755.41 L 140.74 754.57 L 143.19 754.68 L 145.63 756.06 L 148.08 756.87 L 150.53 756.78 L 152.97 757.06 L 155.42 757.20 L 157.87 755.99 L 160.31 754.73 L 162.76 754.86 L 165.21 755.26 L 167.65 755.20 L 170.10 755.97 L 172.55 757.39 L 174.99 757.55 L 177.44 756.61 L 179.89 756.21 L 182.33 755.89 L 184.78 754.70 L 187.23 754.16 L 189.67 755.31 L 192.12 756.39 L 194.57 756.54 L 197.01 757.13 L 199.46 757.87 L 201.91 756.90 L 204.35 755.15 L 206.80 754.75 L 209.25 754.90 L 211.69 754.41 L 214.14 754.96 L 216.59 757.10 L 219.03 758.15 L 221.48 757.39 L 223.93 757.05 L 226.37 756.85 L 228.82 754.86 L 231.27 753.00 L 233.71 753.92 L 236.16 755.58 L 238.61 755.95 L 241.05 757.20 L 243.50 759.48 L 245.95 759.00 L 248.39 755.99 L 250.84 754.61 L 253.29 754.36 L 255.73 752.63 L 258.18 752.36 L 260.63 756.04 L 263.07 759.11 L 265.52 758.79 L 267.97 758.80 L 270.41 759.38 L 272.86 756.19 L 275.31 751.58 L 277.75 751.49 L 280.20 753.72 L 282.65 754.05 L 285.09 755.89 L 287.54 760.75 L 289.99 762.07 L 292.43 758.29 L 294.88 755.83 L 297.33 755.15 L 299.77 751.82 L 302.22 749.47 L 304.67 753.24 L 307.11 757.98 L 309.56 758.65 L 312.01 759.41 L 314.45 761.47 L 316.90 759.05 L 319.35 753.29 L 321.79 751.52 L 324.24 752.89 L 326.69 752.56 L 329.13 753.51 L 331.58 758.42 L 334.03 761.39 L 336.47 759.35 L 338.92 757.47 L 341.37 757.06 L 343.81 754.21 L 346.26 751.01 L 348.71 752.39 L 351.15 755.69 L 353.60 756.62 L 356.05 757.47 L 358.49 759.71 L 360.94 759.38 L 363.39 756.01 L 365.83 754.18 L 368.28 754.38 L 370.73 753.69 L 373.17 753.44 L 375.62 755.89 L 378.07 758.24 L 380.51 757.98 L 382.96 757.34 L 385.41 757.44 L 387.85 756.16 L 390.30 753.96 L 392.75 753.78 L 395.19 755.10 L 397.64 755.59 L 400.09 756.04 L 402.53 757.56 L 404.98 758.17 L 407.43 756.84 L 409.87 755.68 L 412.32 755.53 L 414.77 754.88 L 417.21 754.16 L 419.66 755.11 L 422.11 756.67 L 424.55 756.99 L 427.00 756.90 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 60.00 785.81 L 62.45 785.34 L 64.89 785.16 L 67.34 784.15 L 69.79 783.31 L 72.23 784.03 L 74.68 785.10 L 77.13 785.32 L 79.57 785.73 L 82.02 786.52 L 84.47 786.11 L 86.91 784.69 L 89.36 784.12 L 91.81 784.23 L 94.25 783.86 L 96.70 783.95 L 99.15 785.31 L 101.59 786.32 L 104.04 786.01 L 106.49 785.71 L 108.93 785.72 L 111.38 784.77 L 113.83 783.52 L 116.27 783.68 L 118.72 784.57 L 121.17 784.82 L 123.61 785.26 L 126.06 786.37 L 128.51 786.54 L 130.95 785.36 L 133.40 784.60 L 135.85 784.51 L 138.29 783.90 L 140.74 783.49 L 143.19 784.56 L 145.63 785.83 L 148.08 785.92 L 150.53 785.86 L 152.97 786.18 L 155.42 785.50 L 157.87 784.00 L 160.31 783.61 L 162.76 784.20 L 165.21 784.33 L 167.65 784.63 L 170.10 785.95 L 172.55 786.73 L 174.99 785.94 L 177.44 785.14 L 179.89 784.98 L 182.33 784.17 L 184.78 783.19 L 187.23 783.80 L 189.67 785.23 L 192.12 785.65 L 194.57 785.84 L 197.01 786.63 L 199.46 786.39 L 201.91 784.63 L 204.35 783.60 L 206.80 783.87 L 209.25 783.73 L 211.69 783.67 L 214.14 785.34 L 216.59 787.10 L 219.03 786.78 L 221.48 785.91 L 223.93 785.84 L 226.37 784.68 L 228.82 782.44 L 231.27 782.32 L 233.71 784.24 L 236.16 785.15 L 238.61 785.65 L 241.05 787.66 L 243.50 788.50 L 245.95 785.97 L 248.39 783.56 L 250.84 783.36 L 253.29 782.50 L 255.73 781.27 L 258.18 783.59 L 260.63 787.60 L 263.07 788.33 L 265.52 787.45 L 267.97 788.01 L 270.41 786.59 L 272.86 781.86 L 275.31 779.80 L 277.75 782.11 L 280.20 783.51 L 282.65 784.13 L 285.09 788.03 L 287.54 791.35 L 289.99 788.82 L 292.43 784.91 L 294.88 784.06 L 297.33 782.23 L 299.77 778.88 L 302.22 780.40 L 304.67 785.96 L 307.11 788.22 L 309.56 787.98 L 312.01 789.67 L 314.45 789.40 L 316.90 784.04 L 319.35 780.12 L 321.79 781.22 L 324.24 782.11 L 326.69 782.02 L 329.13 785.62 L 331.58 790.18 L 334.03 789.61 L 336.47 786.66 L 338.92 785.89 L 341.37 784.37 L 343.81 780.72 L 346.26 780.24 L 348.71 783.77 L 351.15 785.90 L 353.60 786.20 L 356.05 787.96 L 358.49 788.98 L 360.94 786.23 L 363.39 783.20 L 365.83 783.02 L 368.28 783.07 L 370.73 782.37 L 373.17 783.86 L 375.62 786.83 L 378.07 787.52 L 380.51 786.46 L 382.96 786.28 L 385.41 785.74 L 387.85 783.57 L 390.30 782.42 L 392.75 783.60 L 395.19 784.69 L 397.64 784.91 L 400.09 786.01 L 402.53 787.23 L 404.98 786.45 L 407.43 784.84 L 409.87 784.40 L 412.32 784.17 L 414.77 783.33 L 417.21 783.60 L 419.66 785.27 L 422.11 786.16 L 424.55 785.93 L 427.00 786.09 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 60.00 814.33 L 62.45 814.15 L 64.89 813.56 L 67.34 812.47 L 69.79 812.62 L 72.23 813.86 L 74.68 814.43 L 77.13 814.55 L 79.57 815.25 L 82.02 815.41 L 84.47 814.15 L 86.91 813.07 L 89.36 813.13 L 91.81 813.09 L 94.25 812.85 L 96.70 813.78 L 99.15 815.18 L 101.59 815.28 L 104.04 814.70 L 106.49 814.65 L 108.93 814.18 L 111.38 812.84 L 113.83 812.40 L 116.27 813.31 L 118.72 813.92 L 121.17 814.09 L 123.61 814.98 L 126.06 815.67 L 128.51 814.82 L 130.95 813.65 L 133.40 813.43 L 135.85 813.18 L 138.29 812.56 L 140.74 813.08 L 143.19 814.55 L 145.63 815.10 L 148.08 814.83 L 150.53 815.01 L 152.97 814.83 L 155.42 813.46 L 157.87 812.49 L 160.31 812.96 L 162.76 813.45 L 165.21 813.52 L 167.65 814.45 L 170.10 815.65 L 172.55 815.35 L 174.99 814.25 L 177.44 813.90 L 179.89 813.52 L 182.33 812.46 L 184.78 812.41 L 187.23 813.83 L 189.67 814.75 L 192.12 814.77 L 194.57 815.27 L 197.01 815.61 L 199.46 814.26 L 201.91 812.68 L 204.35 812.65 L 206.80 812.95 L 209.25 812.71 L 211.69 813.65 L 214.14 815.68 L 216.59 816.15 L 219.03 815.06 L 221.48 814.64 L 223.93 814.18 L 226.37 812.20 L 228.82 811.05 L 231.27 812.59 L 233.71 814.23 L 236.16 814.54 L 238.61 815.80 L 241.05 817.43 L 243.50 816.03 L 245.95 812.97 L 248.39 812.08 L 250.84 812.03 L 253.29 810.75 L 255.73 811.49 L 258.18 815.47 L 260.63 817.69 L 263.07 816.67 L 265.52 816.41 L 267.97 816.25 L 270.41 812.53 L 272.86 808.82 L 275.31 810.05 L 277.75 812.63 L 280.20 813.14 L 282.65 815.44 L 285.09 819.65 L 287.54 819.29 L 289.99 814.76 L 292.43 812.65 L 294.88 812.03 L 297.33 809.03 L 299.77 808.23 L 302.22 813.18 L 304.67 817.41 L 307.11 817.28 L 309.56 817.74 L 312.01 818.82 L 314.45 815.10 L 316.90 809.61 L 319.35 809.18 L 321.79 811.20 L 324.24 811.25 L 326.69 813.09 L 329.13 818.07 L 331.58 819.67 L 334.03 816.54 L 336.47 814.57 L 338.92 813.95 L 341.37 810.92 L 343.81 808.70 L 346.26 811.36 L 348.71 814.82 L 351.15 815.40 L 353.60 816.22 L 356.05 817.95 L 358.49 816.52 L 360.94 812.80 L 363.39 811.53 L 365.83 812.12 L 368.28 811.66 L 370.73 812.08 L 373.17 814.97 L 375.62 816.84 L 378.07 815.94 L 380.51 815.10 L 382.96 814.96 L 385.41 813.35 L 387.85 811.44 L 390.30 811.95 L 392.75 813.54 L 395.19 814.01 L 397.64 814.57 L 400.09 815.96 L 402.53 815.99 L 404.98 814.28 L 407.43 813.26 L 409.87 813.23 L 412.32 812.65 L 414.77 812.33 L 417.21 813.68 L 419.66 815.14 L 422.11 815.14 L 424.55 814.92 L 427.00 815.14 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 75 596 V 584 H 400 V 596" fill="none" stroke="#9674b7" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"  />
+<text id="label-12" x="237" y="575" font-size="28" font-weight="normal" text-anchor="middle" fill="#81619e" >Aₜ₋₁</text>
+<path d="M 102 642 V 630 H 427 V 642" fill="none" stroke="#498fc0" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"  />
+<text id="label-13" x="265" y="618" font-size="28" font-weight="normal" text-anchor="middle" fill="#2e79aa" >Aₜ</text>
+<path d="M 400 650 L 400 865" fill="none" stroke="#9674b7" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"  stroke-dasharray="6 5"/>
+<path d="M 427 650 L 427 899" fill="none" stroke="#498fc0" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"  stroke-dasharray="6 5"/>
+<path d="M 55 846 L 475 846" fill="none" stroke="#2d2d39" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<text id="label-14" x="396" y="884" font-size="27" font-weight="normal" text-anchor="end" fill="#2d2d39" >tₜ₋₁</text>
+<text id="label-15" x="432" y="918" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >tₜ</text>
+<text id="label-16" x="474" y="878" font-size="23" font-weight="normal" text-anchor="end" fill="#2d2d39" >Time</text>
+<rect x="45" y="953" width="440" height="48" rx="11" fill="#e4f1fb" stroke="#bec6d6" stroke-width="2" />
+<text id="label-17" x="265" y="986" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >4000 samples/channel · 80 ms look-back</text>
+<rect x="45" y="1014" width="440" height="48" rx="11" fill="#e4f1fb" stroke="#bec6d6" stroke-width="2" />
+<text id="label-18" x="265" y="1047" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Nominal 150 Hz updates · 6.67 ms</text>
+<text id="label-19" x="265" y="1104" font-size="24" font-weight="normal" text-anchor="middle" fill="#647183" >Host camera timestamps;</text>
+<text id="label-20" x="265" y="1134" font-size="24" font-weight="normal" text-anchor="middle" fill="#647183" >exposure timing unavailable</text>
+<text id="label-21" x="265" y="1170" font-size="22" font-weight="normal" text-anchor="middle" fill="#647183" >Waveforms are schematic</text>
+</g>
+<rect x="550" y="190" width="1210" height="310" rx="18" fill="#f3faf6" stroke="#afcebd" stroke-width="2" />
+<text id="label-22" x="575" y="231" font-size="29" font-weight="bold" text-anchor="start" fill="#487c63" >Visual path: 15 Hz · encode each new image once</text>
+<rect x="550" y="580" width="710" height="365" rx="18" fill="#f4faff" stroke="#adcfe5" stroke-width="2" />
+<text id="label-23" x="570" y="622" font-size="29" font-weight="bold" text-anchor="start" fill="#386f91" >Acoustic path: nominal 150 Hz</text>
+<g id="learned-flow">
+<path d="M 760 355 L 790 355" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 995 355 L 1030 355" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1280 355 H 1405 V 580" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 700 770 L 730 770" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 860 770 L 890 770" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1075 770 L 1105 770" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1245 770 L 1290 770" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1520 770 L 1560 770" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1755 770 H 1835" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1835 282 V 1080" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 1835 282 L 1875 282" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1835 650 L 1875 650" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1835 865 L 1875 865" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1835 1080 L 1875 1080" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1770 770 V 1063 H 1755" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 1622 1020 V 945" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2110 282 L 2350 282" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2800 282 L 2860 282" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2110 650 L 2160 650" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2300 650 L 2340 650" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2815 650 L 2870 650" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2110 865 L 2160 865" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2300 865 L 2340 865" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2815 865 L 2870 865" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2110 1080 L 2160 1080" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2300 1080 L 2340 1080" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<path d="M 2815 1080 L 2870 1080" fill="none" stroke="#2d2d39" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+</g>
+<g id="visual-encoder">
+<rect x="575" y="255" width="185" height="220" rx="16" fill="#e6f3ec" stroke="#2d2d39" stroke-width="2" />
+<text id="label-24" x="667.5" y="289" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Latest image</text>
+<g id="latest-tactile-icon">
+<rect x="620" y="303" width="95" height="108" rx="16" fill="#e5f0ec" stroke="#85b69c" stroke-width="2" />
+<rect x="627" y="310" width="81" height="94" rx="12" fill="url(#sensor-field)" stroke="#4e9199" stroke-width="2" />
+<ellipse cx="670.35" cy="364.56" rx="29.45" ry="25.919999999999998" fill="url(#contact-glow)"/>
+<path d="M 635.00 324.97 L 637.17 324.95 L 639.33 324.91 L 641.50 324.84 L 643.67 324.74 L 645.83 324.58 L 648.00 324.35 L 650.17 324.04 L 652.33 323.65 L 654.50 323.16 L 656.67 322.60 L 658.83 322.00 L 661.00 321.39 L 663.17 320.84 L 665.33 320.39 L 667.50 320.10 L 669.67 320.00 L 671.83 320.10 L 674.00 320.39 L 676.17 320.84 L 678.33 321.39 L 680.50 322.00 L 682.67 322.60 L 684.83 323.16 L 687.00 323.65 L 689.17 324.04 L 691.33 324.35 L 693.50 324.58 L 695.67 324.74 L 697.83 324.84 L 700.00 324.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="325" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="325" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="325" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="325" r="2.5" fill="#176277"/>
+<circle cx="697" cy="325" r="2.5" fill="#176277"/>
+<path d="M 635.00 335.64 L 637.17 335.62 L 639.33 335.58 L 641.50 335.51 L 643.67 335.40 L 645.83 335.24 L 648.00 335.02 L 650.17 334.71 L 652.33 334.31 L 654.50 333.83 L 656.67 333.27 L 658.83 332.66 L 661.00 332.06 L 663.17 331.51 L 665.33 331.06 L 667.50 330.77 L 669.67 330.67 L 671.83 330.77 L 674.00 331.06 L 676.17 331.51 L 678.33 332.06 L 680.50 332.66 L 682.67 333.27 L 684.83 333.83 L 687.00 334.31 L 689.17 334.71 L 691.33 335.02 L 693.50 335.24 L 695.67 335.40 L 697.83 335.51 L 700.00 335.58 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="335.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="335.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="335.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="335.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="697" cy="335.6666666666667" r="2.5" fill="#176277"/>
+<path d="M 635.00 346.31 L 637.17 346.28 L 639.33 346.24 L 641.50 346.17 L 643.67 346.07 L 645.83 345.91 L 648.00 345.68 L 650.17 345.38 L 652.33 344.98 L 654.50 344.49 L 656.67 343.94 L 658.83 343.33 L 661.00 342.73 L 663.17 342.17 L 665.33 341.73 L 667.50 341.43 L 669.67 341.33 L 671.83 341.43 L 674.00 341.73 L 676.17 342.17 L 678.33 342.73 L 680.50 343.33 L 682.67 343.94 L 684.83 344.49 L 687.00 344.98 L 689.17 345.38 L 691.33 345.68 L 693.50 345.91 L 695.67 346.07 L 697.83 346.17 L 700.00 346.24 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="346.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="346.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="346.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="346.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="697" cy="346.3333333333333" r="2.5" fill="#176277"/>
+<path d="M 635.00 356.97 L 637.17 356.95 L 639.33 356.91 L 641.50 356.84 L 643.67 356.74 L 645.83 356.58 L 648.00 356.35 L 650.17 356.04 L 652.33 355.65 L 654.50 355.16 L 656.67 354.60 L 658.83 354.00 L 661.00 353.39 L 663.17 352.84 L 665.33 352.39 L 667.50 352.10 L 669.67 352.00 L 671.83 352.10 L 674.00 352.39 L 676.17 352.84 L 678.33 353.39 L 680.50 354.00 L 682.67 354.60 L 684.83 355.16 L 687.00 355.65 L 689.17 356.04 L 691.33 356.35 L 693.50 356.58 L 695.67 356.74 L 697.83 356.84 L 700.00 356.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="357" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="357" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="357" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="357" r="2.5" fill="#176277"/>
+<circle cx="697" cy="357" r="2.5" fill="#176277"/>
+<path d="M 635.00 367.64 L 637.17 367.62 L 639.33 367.58 L 641.50 367.51 L 643.67 367.40 L 645.83 367.24 L 648.00 367.02 L 650.17 366.71 L 652.33 366.31 L 654.50 365.83 L 656.67 365.27 L 658.83 364.66 L 661.00 364.06 L 663.17 363.51 L 665.33 363.06 L 667.50 362.77 L 669.67 362.67 L 671.83 362.77 L 674.00 363.06 L 676.17 363.51 L 678.33 364.06 L 680.50 364.66 L 682.67 365.27 L 684.83 365.83 L 687.00 366.31 L 689.17 366.71 L 691.33 367.02 L 693.50 367.24 L 695.67 367.40 L 697.83 367.51 L 700.00 367.58 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="367.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="367.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="367.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="367.6666666666667" r="2.5" fill="#176277"/>
+<circle cx="697" cy="367.6666666666667" r="2.5" fill="#176277"/>
+<path d="M 635.00 378.31 L 637.17 378.28 L 639.33 378.24 L 641.50 378.17 L 643.67 378.07 L 645.83 377.91 L 648.00 377.68 L 650.17 377.38 L 652.33 376.98 L 654.50 376.49 L 656.67 375.94 L 658.83 375.33 L 661.00 374.73 L 663.17 374.17 L 665.33 373.73 L 667.50 373.43 L 669.67 373.33 L 671.83 373.43 L 674.00 373.73 L 676.17 374.17 L 678.33 374.73 L 680.50 375.33 L 682.67 375.94 L 684.83 376.49 L 687.00 376.98 L 689.17 377.38 L 691.33 377.68 L 693.50 377.91 L 695.67 378.07 L 697.83 378.17 L 700.00 378.24 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="378.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="378.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="378.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="378.3333333333333" r="2.5" fill="#176277"/>
+<circle cx="697" cy="378.3333333333333" r="2.5" fill="#176277"/>
+<path d="M 635.00 388.97 L 637.17 388.95 L 639.33 388.91 L 641.50 388.84 L 643.67 388.74 L 645.83 388.58 L 648.00 388.35 L 650.17 388.04 L 652.33 387.65 L 654.50 387.16 L 656.67 386.60 L 658.83 386.00 L 661.00 385.39 L 663.17 384.84 L 665.33 384.39 L 667.50 384.10 L 669.67 384.00 L 671.83 384.10 L 674.00 384.39 L 676.17 384.84 L 678.33 385.39 L 680.50 386.00 L 682.67 386.60 L 684.83 387.16 L 687.00 387.65 L 689.17 388.04 L 691.33 388.35 L 693.50 388.58 L 695.67 388.74 L 697.83 388.84 L 700.00 388.91 " fill="none" stroke="#42a1be" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"  />
+<circle cx="638" cy="389" r="2.5" fill="#176277"/>
+<circle cx="652.75" cy="389" r="2.5" fill="#176277"/>
+<circle cx="667.5" cy="389" r="2.5" fill="#176277"/>
+<circle cx="682.25" cy="389" r="2.5" fill="#176277"/>
+<circle cx="697" cy="389" r="2.5" fill="#176277"/>
+</g>
+<rect x="592" y="419" width="151" height="48" rx="11" fill="#fcfffd" stroke="#bec6d6" stroke-width="2" />
+<text id="label-25" x="667.5" y="452" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >3 × H × W</text>
+<path d="M 790 255 L 995 283 L 995 447 L 790 475 Z" fill="#e3f2e8" stroke="#2d2d39" stroke-width="2"/>
+<text id="label-26" x="892" y="330" font-size="31" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Visual</text>
+<text id="label-27" x="892" y="370" font-size="31" font-weight="bold" text-anchor="middle" fill="#2d2d39" >ResNet-18</text>
+<text id="label-28" x="892" y="416" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >4 × 4 pool + Linear</text>
+<rect x="1030" y="255" width="250" height="220" rx="16" fill="#e6f3ec" stroke="#2d2d39" stroke-width="2" />
+<text id="label-29" x="1155" y="291" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Cached visual tokens</text>
+<rect x="1086" y="310" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1123" y="310" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1160" y="310" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1197" y="310" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1086" y="335" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1123" y="335" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1160" y="335" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1197" y="335" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1086" y="360" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1123" y="360" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1160" y="360" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1197" y="360" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1086" y="385" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1123" y="385" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1160" y="385" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1197" y="385" width="27" height="19" rx="5" fill="#b9dccb" stroke="#80a991" stroke-width="2" />
+<rect x="1050" y="420" width="210" height="48" rx="11" fill="#fcfffd" stroke="#bec6d6" stroke-width="2" />
+<text id="label-30" x="1155" y="453" font-size="26" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Vⱼ: 16 × 128</text>
+<text id="label-31" x="1540" y="300" font-size="29" font-weight="bold" text-anchor="middle" fill="#487c63" >Visual context</text>
+<text id="label-32" x="1540" y="345" font-size="26" font-weight="normal" text-anchor="middle" fill="#487c63" >Position / deformation</text>
+<text id="label-33" x="1515" y="415" font-size="25" font-weight="normal" text-anchor="middle" fill="#647183" >Cache tokens until</text>
+<text id="label-34" x="1515" y="449" font-size="25" font-weight="normal" text-anchor="middle" fill="#647183" >a new image arrives</text>
+</g>
+<g id="acoustic-encoder">
+<rect x="570" y="650" width="130" height="240" rx="16" fill="#e4f1fb" stroke="#2d2d39" stroke-width="2" />
+<text id="label-35" x="635" y="687" font-size="25" font-weight="bold" text-anchor="middle" fill="#2d2d39" >6-ch</text>
+<text id="label-36" x="635" y="719" font-size="25" font-weight="bold" text-anchor="middle" fill="#2d2d39" >causal audio</text>
+<path d="M 589.00 760.00 L 589.61 760.72 L 590.23 760.65 L 590.84 760.45 L 591.45 760.49 L 592.07 760.03 L 592.68 759.21 L 593.29 759.13 L 593.91 759.65 L 594.52 759.85 L 595.13 760.04 L 595.75 760.71 L 596.36 760.98 L 596.97 760.37 L 597.59 759.83 L 598.20 759.75 L 598.81 759.43 L 599.43 759.07 L 600.04 759.56 L 600.65 760.38 L 601.27 760.54 L 601.88 760.49 L 602.49 760.71 L 603.11 760.45 L 603.72 759.56 L 604.33 759.18 L 604.95 759.48 L 605.56 759.59 L 606.17 759.68 L 606.79 760.39 L 607.40 760.98 L 608.01 760.65 L 608.63 760.15 L 609.24 760.05 L 609.85 759.67 L 610.47 759.05 L 611.08 759.22 L 611.69 759.99 L 612.31 760.31 L 612.92 760.37 L 613.53 760.78 L 614.15 760.81 L 614.76 760.00 L 615.37 759.38 L 615.99 759.45 L 616.60 759.43 L 617.21 759.32 L 617.83 759.96 L 618.44 760.82 L 619.05 760.81 L 619.67 760.43 L 620.28 760.39 L 620.89 760.03 L 621.51 759.14 L 622.12 758.91 L 622.73 759.58 L 623.35 759.99 L 623.96 760.13 L 624.57 760.80 L 625.19 761.27 L 625.80 760.55 L 626.41 759.63 L 627.03 759.49 L 627.64 759.25 L 628.25 758.74 L 628.87 759.28 L 629.48 760.65 L 630.09 761.11 L 630.71 760.84 L 631.32 761.03 L 631.93 760.78 L 632.55 759.23 L 633.16 758.20 L 633.77 758.81 L 634.39 759.38 L 635.00 759.50 L 635.61 760.78 L 636.23 762.35 L 636.84 761.80 L 637.45 760.21 L 638.07 759.73 L 638.68 759.11 L 639.29 757.49 L 639.91 757.58 L 640.52 759.97 L 641.13 761.40 L 641.75 761.37 L 642.36 762.22 L 642.97 762.60 L 643.59 760.13 L 644.20 757.54 L 644.81 757.71 L 645.43 758.26 L 646.04 757.97 L 646.65 759.74 L 647.27 762.97 L 647.88 763.35 L 648.49 761.47 L 649.11 760.81 L 649.72 760.00 L 650.33 757.21 L 650.95 756.05 L 651.56 758.44 L 652.17 760.49 L 652.79 760.81 L 653.40 762.23 L 654.01 763.68 L 654.63 761.79 L 655.24 758.72 L 655.85 758.13 L 656.47 758.22 L 657.08 757.34 L 657.69 758.30 L 658.31 761.37 L 658.92 762.65 L 659.53 761.70 L 660.15 761.42 L 660.76 761.13 L 661.37 758.94 L 661.99 757.25 L 662.60 758.19 L 663.21 759.49 L 663.83 759.74 L 664.44 760.76 L 665.05 762.27 L 665.67 761.83 L 666.28 760.11 L 666.89 759.46 L 667.51 759.29 L 668.12 758.45 L 668.73 758.43 L 669.35 759.94 L 669.96 760.99 L 670.57 760.86 L 671.19 760.93 L 671.80 761.09 L 672.41 760.12 L 673.03 758.91 L 673.64 758.94 L 674.25 759.42 L 674.87 759.46 L 675.48 759.91 L 676.09 760.94 L 676.71 761.17 L 677.32 760.47 L 677.93 760.07 L 678.55 759.93 L 679.16 759.28 L 679.77 758.87 L 680.39 759.51 L 681.00 760.25 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 589.00 779.58 L 589.61 779.80 L 590.23 779.47 L 590.84 779.42 L 591.45 779.23 L 592.07 778.45 L 592.68 778.02 L 593.29 778.47 L 593.91 778.89 L 594.52 778.98 L 595.13 779.46 L 595.75 779.99 L 596.36 779.64 L 596.97 778.90 L 597.59 778.69 L 598.20 778.58 L 598.81 778.17 L 599.43 778.31 L 600.04 779.17 L 600.65 779.63 L 601.27 779.50 L 601.88 779.59 L 602.49 779.60 L 603.11 778.86 L 603.72 778.16 L 604.33 778.32 L 604.95 778.64 L 605.56 778.66 L 606.17 779.11 L 606.79 779.87 L 607.40 779.87 L 608.01 779.25 L 608.63 778.99 L 609.24 778.83 L 609.85 778.24 L 610.47 778.05 L 611.08 778.74 L 611.69 779.34 L 612.31 779.38 L 612.92 779.60 L 613.53 779.87 L 614.15 779.32 L 614.76 778.46 L 615.37 778.33 L 615.99 778.50 L 616.60 778.37 L 617.21 778.68 L 617.83 779.59 L 618.44 779.96 L 619.05 779.53 L 619.67 779.30 L 620.28 779.18 L 620.89 778.45 L 621.51 777.86 L 622.12 778.31 L 622.73 778.99 L 623.35 779.14 L 623.96 779.51 L 624.57 780.17 L 625.19 779.89 L 625.80 778.83 L 626.41 778.39 L 627.03 778.39 L 627.64 777.96 L 628.25 777.99 L 628.87 779.22 L 629.48 780.16 L 630.09 779.95 L 630.71 779.82 L 631.32 779.90 L 631.93 778.82 L 632.55 777.35 L 633.16 777.46 L 633.77 778.37 L 634.39 778.58 L 635.00 779.23 L 635.61 780.90 L 636.23 781.23 L 636.84 779.64 L 637.45 778.59 L 638.07 778.36 L 638.68 777.13 L 639.29 776.32 L 639.91 778.11 L 640.52 780.31 L 641.13 780.54 L 641.75 780.71 L 642.36 781.53 L 642.97 780.16 L 643.59 777.09 L 644.20 776.25 L 644.81 777.26 L 645.43 777.28 L 646.04 777.95 L 646.65 780.99 L 647.27 782.75 L 647.88 781.13 L 648.49 779.61 L 649.11 779.26 L 649.72 777.26 L 650.33 775.02 L 650.95 776.36 L 651.56 779.23 L 652.17 780.02 L 652.79 780.59 L 653.40 782.33 L 654.01 781.80 L 654.63 778.50 L 655.24 776.79 L 655.85 777.19 L 656.47 776.77 L 657.08 776.72 L 657.69 779.35 L 658.31 781.75 L 658.92 781.23 L 659.53 780.27 L 660.15 780.22 L 660.76 778.78 L 661.37 776.47 L 661.99 776.51 L 662.60 778.23 L 663.21 778.89 L 663.83 779.35 L 664.44 780.87 L 665.05 781.31 L 665.67 779.66 L 666.28 778.37 L 666.89 778.29 L 667.51 777.78 L 668.12 777.25 L 668.73 778.34 L 669.35 779.89 L 669.96 780.09 L 670.57 779.83 L 671.19 780.05 L 671.80 779.55 L 672.41 778.19 L 673.03 777.70 L 673.64 778.28 L 674.25 778.55 L 674.87 778.71 L 675.48 779.61 L 676.09 780.28 L 676.71 779.76 L 677.32 779.07 L 677.93 778.93 L 678.55 778.53 L 679.16 777.91 L 679.77 778.19 L 680.39 779.10 L 681.00 779.45 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 589.00 798.87 L 589.61 798.60 L 590.23 798.35 L 590.84 798.31 L 591.45 797.74 L 592.07 797.05 L 592.68 797.24 L 593.29 797.84 L 593.91 798.02 L 594.52 798.26 L 595.13 798.86 L 595.75 798.87 L 596.36 798.10 L 596.97 797.63 L 597.59 797.62 L 598.20 797.33 L 598.81 797.18 L 599.43 797.87 L 600.04 798.61 L 600.65 798.61 L 601.27 798.49 L 601.88 798.60 L 602.49 798.16 L 603.11 797.30 L 603.72 797.15 L 604.33 797.58 L 604.95 797.72 L 605.56 797.92 L 606.17 798.64 L 606.79 799.00 L 607.40 798.46 L 608.01 797.96 L 608.63 797.86 L 609.24 797.47 L 609.85 797.02 L 610.47 797.45 L 611.08 798.25 L 611.69 798.45 L 612.31 798.48 L 612.92 798.79 L 613.53 798.58 L 614.15 797.68 L 614.76 797.23 L 615.37 797.45 L 615.99 797.48 L 616.60 797.53 L 617.21 798.28 L 617.83 798.98 L 618.44 798.73 L 619.05 798.27 L 619.67 798.19 L 620.28 797.75 L 620.89 796.97 L 621.51 797.05 L 622.12 797.85 L 622.73 798.21 L 623.35 798.34 L 623.96 798.94 L 624.57 799.10 L 625.19 798.16 L 625.80 797.36 L 626.41 797.36 L 627.03 797.20 L 627.64 796.92 L 628.25 797.74 L 628.87 799.01 L 629.48 799.15 L 630.09 798.73 L 630.71 798.80 L 631.32 798.28 L 631.93 796.77 L 632.55 796.21 L 633.16 797.13 L 633.77 797.73 L 634.39 797.97 L 635.00 799.28 L 635.61 800.34 L 636.23 799.24 L 636.84 797.64 L 637.45 797.32 L 638.07 796.71 L 638.68 795.50 L 639.29 796.31 L 639.91 798.82 L 640.52 799.80 L 641.13 799.52 L 641.75 800.12 L 642.36 799.84 L 642.97 797.05 L 643.59 795.06 L 644.20 795.86 L 644.81 796.60 L 645.43 796.68 L 646.04 798.85 L 646.65 801.58 L 647.27 800.98 L 647.88 798.76 L 648.49 798.12 L 649.11 797.10 L 649.72 794.59 L 650.33 794.47 L 650.95 797.46 L 651.56 799.27 L 652.17 799.39 L 652.79 800.66 L 653.40 801.33 L 654.01 798.66 L 654.63 795.80 L 655.24 795.81 L 655.85 796.12 L 656.47 795.65 L 657.08 797.28 L 657.69 800.34 L 658.31 800.85 L 658.92 799.45 L 659.53 799.05 L 660.15 798.40 L 660.76 796.11 L 661.37 795.05 L 661.99 796.62 L 662.60 797.99 L 663.21 798.24 L 663.83 799.33 L 664.44 800.45 L 665.05 799.38 L 665.67 797.52 L 666.28 797.10 L 666.89 797.01 L 667.51 796.35 L 668.12 796.80 L 668.73 798.52 L 669.35 799.31 L 669.96 798.92 L 670.57 798.90 L 671.19 798.82 L 671.80 797.63 L 672.41 796.62 L 673.03 796.99 L 673.64 797.58 L 674.25 797.68 L 674.87 798.27 L 675.48 799.20 L 676.09 799.08 L 676.71 798.21 L 677.32 797.85 L 677.93 797.69 L 678.55 797.09 L 679.16 796.96 L 679.77 797.82 L 680.39 798.49 L 681.00 798.49 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 589.00 817.79 L 589.61 817.36 L 590.23 817.27 L 590.84 816.98 L 591.45 816.23 L 592.07 816.05 L 592.68 816.67 L 593.29 817.08 L 593.91 817.17 L 594.52 817.64 L 595.13 817.97 L 595.75 817.38 L 596.36 816.66 L 596.97 816.56 L 597.59 816.48 L 598.20 816.20 L 598.81 816.57 L 599.43 817.46 L 600.04 817.74 L 600.65 817.49 L 601.27 817.52 L 601.88 817.37 L 602.49 816.56 L 603.11 816.06 L 603.72 816.42 L 604.33 816.78 L 604.95 816.85 L 605.56 817.37 L 606.17 817.98 L 606.79 817.72 L 607.40 817.02 L 608.01 816.81 L 608.63 816.64 L 609.24 816.14 L 609.85 816.21 L 610.47 817.04 L 611.08 817.52 L 611.69 817.47 L 612.31 817.64 L 612.92 817.72 L 613.53 817.00 L 614.15 816.24 L 614.76 816.32 L 615.37 816.56 L 615.99 816.52 L 616.60 816.98 L 617.21 817.84 L 617.83 817.93 L 618.44 817.36 L 619.05 817.13 L 619.67 816.94 L 620.28 816.22 L 620.89 815.90 L 621.51 816.59 L 622.12 817.23 L 622.73 817.32 L 623.35 817.68 L 623.96 818.12 L 624.57 817.54 L 625.19 816.49 L 625.80 816.25 L 626.41 816.34 L 627.03 816.05 L 627.64 816.37 L 628.25 817.66 L 628.87 818.29 L 629.48 817.84 L 630.09 817.63 L 630.71 817.51 L 631.32 816.31 L 631.93 815.20 L 632.55 815.75 L 633.16 816.75 L 633.77 816.97 L 634.39 817.72 L 635.00 819.09 L 635.61 818.80 L 636.23 816.99 L 636.84 816.16 L 637.45 816.02 L 638.07 814.98 L 638.68 814.82 L 639.29 817.02 L 639.91 818.87 L 640.52 818.67 L 641.13 818.68 L 641.75 819.03 L 642.36 817.11 L 642.97 814.35 L 643.59 814.30 L 644.20 815.63 L 644.81 815.83 L 645.43 816.94 L 646.04 819.85 L 646.65 820.64 L 647.27 818.37 L 647.88 816.90 L 648.49 816.49 L 649.11 814.49 L 649.72 813.08 L 650.33 815.34 L 650.95 818.19 L 651.56 818.59 L 652.17 819.04 L 652.79 820.28 L 653.40 818.83 L 654.01 815.37 L 654.63 814.31 L 655.24 815.13 L 655.85 814.94 L 656.47 815.51 L 657.08 818.45 L 657.69 820.23 L 658.31 819.01 L 658.92 817.88 L 659.53 817.64 L 660.15 815.92 L 660.76 814.01 L 661.37 814.83 L 661.99 816.81 L 662.60 817.37 L 663.21 817.88 L 663.83 819.23 L 664.44 819.03 L 665.05 817.00 L 665.67 815.91 L 666.28 816.03 L 666.89 815.61 L 667.51 815.47 L 668.12 816.94 L 668.73 818.35 L 669.35 818.19 L 669.96 817.80 L 670.57 817.87 L 671.19 817.10 L 671.80 815.78 L 672.41 815.67 L 673.03 816.46 L 673.64 816.76 L 674.25 817.02 L 674.87 817.94 L 675.48 818.30 L 676.09 817.50 L 676.71 816.81 L 677.32 816.72 L 677.93 816.33 L 678.55 815.90 L 679.16 816.46 L 679.77 817.40 L 680.39 817.60 L 681.00 817.54 " fill="none" stroke="#335a6d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"  />
+<rect x="578" y="835" width="114" height="48" rx="11" fill="#fcfdff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-37" x="635" y="868" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >6 × 4000</text>
+<rect x="730" y="650" width="130" height="240" rx="16" fill="#fff0d9" stroke="#2d2d39" stroke-width="2" />
+<text id="label-38" x="795" y="687" font-size="25" font-weight="bold" text-anchor="middle" fill="#2d2d39" >STFT +</text>
+<text id="label-39" x="795" y="719" font-size="25" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Log-Mel</text>
+<rect x="754" y="750" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="768" y="750" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="782" y="750" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="796" y="750" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="810" y="750" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="824" y="750" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="754" y="760" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="768" y="760" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="782" y="760" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="796" y="760" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="810" y="760" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="824" y="760" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="754" y="770" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="768" y="770" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="782" y="770" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="796" y="770" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="810" y="770" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="824" y="770" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="754" y="780" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="768" y="780" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="782" y="780" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="796" y="780" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="810" y="780" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="824" y="780" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="754" y="790" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="768" y="790" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="782" y="790" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="796" y="790" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="810" y="790" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="824" y="790" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="754" y="800" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="768" y="800" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="782" y="800" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="796" y="800" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="810" y="800" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="824" y="800" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="754" y="810" width="14" height="10" rx="0" fill="#4f2466" stroke="none" stroke-width="2" />
+<rect x="768" y="810" width="14" height="10" rx="0" fill="#78317e" stroke="none" stroke-width="2" />
+<rect x="782" y="810" width="14" height="10" rx="0" fill="#b65078" stroke="none" stroke-width="2" />
+<rect x="796" y="810" width="14" height="10" rx="0" fill="#e57964" stroke="none" stroke-width="2" />
+<rect x="810" y="810" width="14" height="10" rx="0" fill="#f2a45c" stroke="none" stroke-width="2" />
+<rect x="824" y="810" width="14" height="10" rx="0" fill="#ffc65c" stroke="none" stroke-width="2" />
+<rect x="738" y="835" width="114" height="48" rx="11" fill="#fffdfa" stroke="#bec6d6" stroke-width="2" />
+<text id="label-40" x="795" y="868" font-size="22" font-weight="normal" text-anchor="middle" fill="#2d2d39" >6 × 64 × 28</text>
+<rect x="890" y="650" width="185" height="240" rx="16" fill="#e4f1fb" stroke="#2d2d39" stroke-width="2" />
+<text id="label-41" x="982.5" y="686" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Shared</text>
+<text id="label-42" x="982.5" y="719" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >per-mic</text>
+<text id="label-43" x="982.5" y="752" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >ResNet-18</text>
+<text id="label-44" x="982.5" y="797" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Frequency-only</text>
+<text id="label-45" x="982.5" y="825" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >strides</text>
+<rect x="901" y="835" width="163" height="48" rx="11" fill="#fcfdff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-46" x="982.5" y="868" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >6 × 28 × 128</text>
+<rect x="1105" y="650" width="140" height="240" rx="16" fill="#e4f1fb" stroke="#2d2d39" stroke-width="2" />
+<text id="label-47" x="1175" y="693" font-size="22" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Mean over</text>
+<text id="label-48" x="1175" y="726" font-size="22" font-weight="bold" text-anchor="middle" fill="#2d2d39" >microphones</text>
+<text id="label-49" x="1175" y="791" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Weights: 1/6</text>
+<rect x="1111" y="835" width="128" height="48" rx="11" fill="#fcfdff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-50" x="1175" y="868" font-size="22" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Sₜ: 28 × 128</text>
+</g>
+<g id="joint-attention">
+<rect x="1290" y="580" width="230" height="365" rx="16" fill="#eee5f5" stroke="#2d2d39" stroke-width="2" />
+<text id="label-51" x="1405" y="624" font-size="30" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Joint</text>
+<text id="label-52" x="1405" y="662" font-size="30" font-weight="bold" text-anchor="middle" fill="#2d2d39" >cross-attention</text>
+<text id="label-53" x="1405" y="720" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Position + modality</text>
+<text id="label-54" x="1405" y="749" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >embeddings</text>
+<text id="label-55" x="1405" y="796" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Q = Linear(last</text>
+<text id="label-56" x="1405" y="826" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >audio token)</text>
+<text id="label-57" x="1405" y="860" font-size="21" font-weight="normal" text-anchor="middle" fill="#2d2d39" >K,V = [Sₜ; Vⱼ]: 44 × 128</text>
+<rect x="1304" y="881" width="202" height="48" rx="11" fill="#fcfaff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-58" x="1405" y="914" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >fₜ: 1 × 128</text>
+</g>
+<g id="stateful-gru">
+<rect x="1560" y="580" width="195" height="365" rx="16" fill="#eee5f5" stroke="#2d2d39" stroke-width="2" />
+<text id="label-59" x="1657.5" y="657" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Stateful</text>
+<text id="label-60" x="1657.5" y="700" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >GRU(128,256)</text>
+<text id="label-61" x="1657.5" y="793" font-size="26" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Temporal</text>
+<text id="label-62" x="1657.5" y="829" font-size="26" font-weight="normal" text-anchor="middle" fill="#2d2d39" >state memory</text>
+<rect x="1574" y="881" width="167" height="48" rx="11" fill="#fcfaff" stroke="#bec6d6" stroke-width="2" />
+<text id="label-63" x="1657.5" y="914" font-size="26" font-weight="normal" text-anchor="middle" fill="#2d2d39" >hₜ: 256-D</text>
+<text id="label-64" x="1798" y="744" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >hₜ</text>
+<rect x="1490" y="1020" width="265" height="85" rx="16" fill="#f7f1fb" stroke="#2d2d39" stroke-width="2" />
+<text id="label-65" x="1622.5" y="1073" font-size="27" font-weight="bold" text-anchor="middle" fill="#2d2d39" >GRU memory hₜ₋₁</text>
+<text id="label-66" x="1458" y="1003" font-size="23" font-weight="normal" text-anchor="end" fill="#647183" >hₜ stored for next step</text>
+<text id="label-67" x="1155" y="1150" font-size="27" font-weight="normal" text-anchor="middle" fill="#647183" >Carry h across continuous steps; no reset at contact transitions</text>
+</g>
+<g id="contact-head">
+<rect x="1875" y="205" width="235" height="155" rx="16" fill="#eee5f5" stroke="#2d2d39" stroke-width="2" />
+<text id="label-68" x="1992.5" y="245" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Contact head</text>
+<text id="label-69" x="1992.5" y="287" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >MLP 256 → 1</text>
+<text id="label-70" x="1992.5" y="321" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >+ Sigmoid</text>
+</g>
+<text id="label-71" x="2228" y="259" font-size="26" font-weight="normal" text-anchor="middle" fill="#2d2d39" >pₜ = P(contact)</text>
+<g id="contact-transition">
+<rect x="2350" y="205" width="450" height="155" rx="18" fill="#e3f4f3" stroke="#007d82" stroke-width="2" />
+<text id="label-72" x="2575" y="246" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Hysteresis + transition logic</text>
+<text id="label-73" x="2575" y="293" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >θoff &lt; θon</text>
+<text id="label-74" x="2575" y="335" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >(ĉₜ₋₁, ĉₜ)</text>
+<rect x="2250" y="405" width="370" height="95" rx="16" fill="#e3f4f3" stroke="#007d82" stroke-width="2" />
+<text id="label-75" x="2435" y="442" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Contact state cache</text>
+<text id="label-76" x="2435" y="481" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >ĉₜ → ĉₜ₋₁ at next step</text>
+<path d="M 2400 360 V 405" fill="none" stroke="#007d82" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-teal)" />
+<path d="M 2620 452 H 2690 V 360" fill="none" stroke="#007d82" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-teal)" />
+<path d="M 2790 360 V 560" fill="none" stroke="#b87917" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-amber)" stroke-dasharray="8 7"/>
+<rect x="2860" y="222" width="275" height="120" rx="16" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-77" x="2997.5" y="260" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Contact probability</text>
+<text id="label-78" x="2997.5" y="302" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >pₜ + state ĉₜ</text>
+</g>
+<g id="position-head">
+<rect x="1875" y="575" width="235" height="150" rx="16" fill="#eee5f5" stroke="#2d2d39" stroke-width="2" />
+<text id="label-79" x="1992.5" y="615" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Position head</text>
+<text id="label-80" x="1992.5" y="657" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >MLP 256 → 3</text>
+<text id="label-81" x="1992.5" y="691" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >(xₜ, yₜ, zₜ)</text>
+</g>
+<g id="wrench-head">
+<rect x="1875" y="790" width="235" height="150" rx="16" fill="#fae8ed" stroke="#2d2d39" stroke-width="2" />
+<text id="label-82" x="1992.5" y="830" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Wrench head</text>
+<text id="label-83" x="1992.5" y="872" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >MLP 256 → 6</text>
+<text id="label-84" x="1992.5" y="903" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >(Fx, Fy, Fz,</text>
+<text id="label-85" x="1992.5" y="930" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Mx, My, Mz)</text>
+</g>
+<g id="slip-head">
+<rect x="1875" y="1005" width="235" height="150" rx="16" fill="#fff0d9" stroke="#2d2d39" stroke-width="2" />
+<text id="label-86" x="1992.5" y="1045" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Slip head</text>
+<text id="label-87" x="1992.5" y="1087" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >MLP 256 → 2</text>
+<text id="label-88" x="1992.5" y="1121" font-size="25" font-weight="normal" text-anchor="middle" fill="#2d2d39" >(Δsₓ, Δsᵧ)</text>
+</g>
+<g id="physical-unit-conversion">
+<rect x="2160" y="610" width="140" height="80" rx="12" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-89" x="2230" y="640" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >De-</text>
+<text id="label-90" x="2230" y="669" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >normalize</text>
+<rect x="2160" y="825" width="140" height="80" rx="12" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-91" x="2230" y="855" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >De-</text>
+<text id="label-92" x="2230" y="884" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >normalize</text>
+<rect x="2160" y="1040" width="140" height="80" rx="12" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-93" x="2230" y="1070" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >De-</text>
+<text id="label-94" x="2230" y="1099" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >normalize</text>
+</g>
+<g id="physical-output-gate">
+<rect x="2340" y="560" width="475" height="595" rx="18" fill="#fff9ef" stroke="#b87917" stroke-width="2" />
+<text id="label-95" x="2577.5" y="602" font-size="31" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Physical output gate</text>
+<text id="label-96" x="2577.5" y="638" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Controlled by contact transition</text>
+<rect x="2358" y="665" width="439" height="410" rx="9" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<path d="M 2438 665 L 2438 1075" fill="none" stroke="#2d2d39" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 2358 710 L 2797 710" fill="none" stroke="#2d2d39" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 2358 795 L 2797 795" fill="none" stroke="#2d2d39" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 2358 895 L 2797 895" fill="none" stroke="#2d2d39" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"  />
+<path d="M 2358 985 L 2797 985" fill="none" stroke="#2d2d39" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"  />
+<text id="label-97" x="2398" y="695" font-size="23" font-weight="normal" text-anchor="middle" fill="#2d2d39" >ĉₜ₋₁→ĉₜ</text>
+<text id="label-98" x="2617.5" y="695" font-size="25" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Gate decision</text>
+<text id="label-99" x="2398" y="757" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >0 → 0</text>
+<text id="label-100" x="2453" y="743" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >No contact: wrench = 0;</text>
+<text id="label-101" x="2453" y="774" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >position / slip invalid</text>
+<text id="label-102" x="2398" y="852" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >0 → 1</text>
+<text id="label-103" x="2453" y="824" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >Contact onset: enable</text>
+<text id="label-104" x="2453" y="854" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >regressions; initialize</text>
+<text id="label-105" x="2453" y="884" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >slip reference</text>
+<text id="label-106" x="2398" y="950" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >1 → 1</text>
+<text id="label-107" x="2453" y="924" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >Sustained contact: normal</text>
+<text id="label-108" x="2453" y="955" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >position / wrench / slip</text>
+<text id="label-109" x="2398" y="1038" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >1 → 0</text>
+<text id="label-110" x="2453" y="1015" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >Contact release: wrench = 0;</text>
+<text id="label-111" x="2453" y="1046" font-size="25" font-weight="normal" text-anchor="start" fill="#2d2d39" >position / slip invalid</text>
+<text id="label-112" x="2577.5" y="1112" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Slip increment invalid across onset</text>
+<text id="label-113" x="2577.5" y="1141" font-size="24" font-weight="normal" text-anchor="middle" fill="#2d2d39" >or missing history</text>
+</g>
+<g id="regression-outputs">
+<rect x="2870" y="610" width="270" height="90" rx="16" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-114" x="3005" y="645" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Contact position</text>
+<text id="label-115" x="3005" y="680" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >+ valid</text>
+<rect x="2870" y="825" width="270" height="90" rx="16" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-116" x="3005" y="879" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Contact wrench</text>
+<rect x="2870" y="1040" width="270" height="90" rx="16" fill="#fff" stroke="#2d2d39" stroke-width="2" />
+<text id="label-117" x="3005" y="1075" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Slip increment</text>
+<text id="label-118" x="3005" y="1110" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >+ valid</text>
+</g>
+<g id="legend">
+<text id="label-119" x="1865" y="545" font-size="23" font-weight="bold" text-anchor="start" fill="#2d2d39" >Legend:</text>
+<path d="M 1960 537 L 2020 537" fill="none" stroke="#2d2d39" stroke-width="2.7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-ink)" />
+<text id="label-120" x="2040" y="545" font-size="23" font-weight="normal" text-anchor="start" fill="#2d2d39" >Learned flow</text>
+<path d="M 2215 537 L 2275 537" fill="none" stroke="#b87917" stroke-width="2.7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-amber)" stroke-dasharray="7 5"/>
+<text id="label-121" x="2295" y="545" font-size="23" font-weight="normal" text-anchor="start" fill="#2d2d39" >Rule control</text>
+<path d="M 2485 537 L 2545 537" fill="none" stroke="#007d82" stroke-width="2.7" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#arrow-teal)" />
+<text id="label-122" x="2565" y="545" font-size="23" font-weight="normal" text-anchor="start" fill="#2d2d39" >Delayed contact state</text>
+</g>
+<g id="training-only-supervision">
+<rect x="55" y="1285" width="670" height="175" rx="16" fill="#fbf9fd" stroke="#bec6d6" stroke-width="2" />
+<text id="label-123" x="390" y="1325" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Existing data labels</text>
+<text id="label-124" x="390" y="1370" font-size="28" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Press backgrounds: c*ₜ = 0</text>
+<text id="label-125" x="390" y="1415" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Verified press targets + continuous slides: c*ₜ = 1</text>
+<rect x="800" y="1310" width="520" height="120" rx="16" fill="#eee5f5" stroke="#bec6d6" stroke-width="2" />
+<text id="label-126" x="1060" y="1350" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Contact loss</text>
+<text id="label-127" x="1060" y="1400" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Lcontact = BCE(pₜ, c*ₜ)</text>
+<text id="label-128" x="1060" y="1292" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >pₜ</text>
+<path d="M 1060 1298 L 1060 1310" fill="none" stroke="#77618f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"  stroke-dasharray="5 4"/>
+<rect x="1380" y="1310" width="700" height="120" rx="16" fill="#eee5f5" stroke="#bec6d6" stroke-width="2" />
+<text id="label-129" x="1730" y="1350" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >No-contact wrench loss</text>
+<text id="label-130" x="1730" y="1400" font-size="29" font-weight="normal" text-anchor="middle" fill="#2d2d39" >Lzero = mean[c*ₜ = 0] Huber(w̃ₜ / s)</text>
+<text id="label-131" x="1730" y="1292" font-size="27" font-weight="normal" text-anchor="middle" fill="#2d2d39" >w̃ₜ (raw, de-normalized)</text>
+<path d="M 1730 1298 L 1730 1310" fill="none" stroke="#77618f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"  stroke-dasharray="5 4"/>
+<rect x="2150" y="1285" width="990" height="175" rx="16" fill="#fbf9fd" stroke="#bec6d6" stroke-width="2" />
+<text id="label-132" x="2645" y="1325" font-size="29" font-weight="bold" text-anchor="middle" fill="#2d2d39" >Regression losses</text>
+<text id="label-133" x="2190" y="1366" font-size="27" font-weight="normal" text-anchor="start" fill="#2d2d39" >Position: valid contact labels   ·   Wrench: calibrated targets</text>
+<text id="label-134" x="2190" y="1402" font-size="27" font-weight="normal" text-anchor="start" fill="#2d2d39" >Slip: valid within-contact increments</text>
+<text id="label-135" x="2190" y="1438" font-size="27" font-weight="normal" text-anchor="start" fill="#2d2d39" >w̃ₜ: physical-unit wrench BEFORE gating; per-axis scale s</text>
+<text id="label-136" x="1590" y="1490" font-size="26" font-weight="normal" text-anchor="middle" fill="#647183" >Contact truth is used for supervision only; inference uses predicted states and a deterministic output gate.</text>
+</g>
+<text id="label-137" x="3170" y="1540" font-size="26" font-weight="normal" text-anchor="end" fill="#647183" >Four learned heads · deterministic contact transitions · physical-unit gating</text>
+</svg>

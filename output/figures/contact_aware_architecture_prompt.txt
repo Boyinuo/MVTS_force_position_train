@@ -1,0 +1,48 @@
+Create a completely redrawn, high-resolution scientific neural-network architecture diagram using the supplied image as a STYLE AND BASELINE ARCHITECTURE reference. This is a proposed architecture schematic, not experimental data. Keep the elegant white background, crisp dark outlines and serif typography, pastel mint visual pathway, pastel blue acoustic pathway, lavender temporal fusion, rose wrench head, pale orange slip head. Highlight the NEW contact and gating components in restrained amber/teal. Landscape canvas approximately 2.1:1, as large and legible as possible. Carefully typeset all English text and mathematical subscripts. No watermark, logos, decorative scientific imagery, fake data plots, performance claims, uncertainty head, extra experts, learned dynamics residuals, or hidden-state reset at contact transitions.
+
+Purpose: redraw the dual-rate visual-tactile and acoustic state estimator with FOUR prediction heads and explicit rule-based contact transition output gating. Main message: contact is predicted from the GRU state and directly controls physical output validity; previous predicted contact is stored with a one-step delay and compared to current predicted contact. Ground truth is TRAINING ONLY.
+
+Title: "Contact-Aware Dual-Rate Visual–Acoustic State Estimation"
+
+Compose three clear upper panels (a), (b), (c) with sufficient width for (c), and one shallow full-width bottom panel (d). Prioritize architecture and arrows over excessive prose; do not cram text.
+
+(a) "Causal dual-rate inputs"
+A compact timing schematic with camera frames at 15 Hz, latest available image I_j, six-channel audio sampled at 50 kHz. Show overlapping causal windows A_(t-1) and A_t ending at their own timestamps, each using only preceding audio. Label "4000 samples/channel · 80 ms look-back", "Nominal 150 Hz updates · 6.67 ms", and "Reuse latest image between camera frames". Small note: "Host camera timestamps; exposure timing unavailable". All waveforms illustrative. Do not draw audio extending beyond its output timestamp.
+
+(b) "Shared encoding and temporal fusion"
+Two parallel horizontal paths:
+Mint visual path: "Latest image" with stylized tactile sensor thumbnail, shape "3 × H × W" -> "Visual ResNet-18" / "4 × 4 pool + Linear" -> "Cached visual tokens" / "V_j: 16 × 128". Label this path "15 Hz · encode each new image once".
+Blue audio path: "6-ch causal audio" / "6 × 4000" -> "STFT + Log-Mel" / "6 × 64 × 28" -> "Shared per-mic ResNet-18" / "Frequency-only strides" / "6 × 28 × 128" -> "Mean over microphones" / "S_t: 28 × 128". Label "Nominal 150 Hz".
+Both token paths converge into lavender "Joint cross-attention" with three short equations: "Q = Linear(last audio token)", "K,V = Concat(S_t,V_j): 44 × 128", "f_t: 1 × 128". Mention small "Position + modality embeddings".
+Then arrow to "Stateful GRU(128,256)" with output "h_t: 256-D". Show a distinct delayed recurrence loop labelled "GRU memory h_(t-1)" returning to the GRU. The GRU memory is carried between continuous steps; it is NOT reset merely by a contact transition.
+All four heads in panel (c) receive the SAME h_t. Route the h_t arrow from (b) across the panel boundary to an obvious shared fanout bus.
+
+(c) "Contact prediction and rule-based output gating"
+Top branch: "Contact head" / "MLP 256 → 1 + Sigmoid" / "p_t = P(contact)" -> "Hysteresis + transition logic".
+A separate small cache "Contact state cache" stores "c-hat_t → c-hat_(t-1) at next step". Draw a delayed return from this cache into the hysteresis/transition logic. Current predicted contact output c-hat_t must update this cache ONLY for the next step. Both the previous predicted contact and current probability feed the logic. This cache is distinct from GRU hidden memory.
+Inside or beside the logic box show "theta_off < theta_on" and "(c-hat_(t-1), c-hat_t)".
+Expose "Contact probability p_t + state c-hat_t" as a final output, in addition to the three regression outputs.
+
+Three parallel regression branches below:
+"Position head" / "MLP 256 → 3" / "(x_t,y_t,z_t)"
+"Wrench head" / "MLP 256 → 6" / "(Fx,Fy,Fz,Mx,My,Mz)"
+"Slip head" / "MLP 256 → 2" / "(Delta s_x, Delta s_y)"
+Connect each RAW regression prediction through a clearly labelled "De-normalize" stage into ONE common "Physical output gate" block. Do not gate normalized wrench values. The contact transition logic sends a control arrow to the Physical output gate. Use dark solid arrows for learned feature/prediction flow, amber dashed arrows for RULE CONTROL; show a tiny legend for these.
+The gate outputs three compact output boxes: "Contact position + valid", "Contact wrench", "Slip increment + valid".
+The gate has a compact four-row decision table, large enough to read:
+"0 → 0   No contact: wrench = 0; position/slip invalid"
+"0 → 1   Contact onset: enable regressions; initialize slip reference"
+"1 → 1   Sustained contact: normal position / wrench / slip"
+"1 → 0   Contact release: wrench = 0; position/slip invalid"
+Small note under table: "Slip increment invalid across onset or missing history".
+Make clear that onset initializes a slip reference, NOT clearing the entire GRU. No extra position branch or experts.
+
+(d) "Training supervision · ground truth is not an inference input"
+Use a shallow dashed-border training-only strip. Visually separate it from inference above.
+Left: "Existing data labels" with short lines "Press backgrounds: c* = 0" and "Verified press targets + continuous slides: c* = 1".
+Middle: "Contact loss" with "L_contact = BCE(p_t, c*_t)" and "No-contact wrench loss" with "L_zero = mean_(c*=0) Huber(w_tilde / s)".
+Right: "Regression losses" with "Position: valid contact labels", "Wrench: calibrated targets", "Slip: valid within-contact increments".
+Explicit note: "w_tilde: physical-unit wrench BEFORE output gating; per-axis scale s". Thin dotted training connectors may lead to the appropriate loss from contact and raw de-normalized wrench. Never draw c* as an input to GRU, hysteresis, or inference gate.
+A small footer: "Four learned heads · deterministic contact transitions · physical-unit gating".
+Shapes omit batch dimension. Keep tensor dimensions correct. Do not add uncertainty/Softplus. No implication that binary contact distinguishes pressing from sliding. Distinguish loss soft constraint from inference hard gate by separate blocks.
+
