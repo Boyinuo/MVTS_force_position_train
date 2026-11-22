@@ -1,6 +1,6 @@
 # 接触感知四预测头（2026-11-21 新增）
 
-新增模型 `mvts/model_contact_gated.py`，通过 `--model model_contact_gated` 选择；原三头模型及其训练命令继续保留。共享视觉/声学编码、联合注意力、GRU(128,256) 后，四个 MLP 分别输出位置3维、六维力6维、滑移增量2维和接触 logit 1维。没有额外的不确定性头、动力学专家或真值接触输入。
+新增模型 `mvts/model_contact_gated/model_contact_gated.py`，通过 `--model model_contact_gated` 选择；原三头模型及其训练命令继续保留。共享视觉/声学编码、联合注意力、GRU(128,256) 后，四个 MLP 分别输出位置3维、六维力6维、滑移增量2维和接触 logit 1维。没有额外的不确定性头、动力学专家或真值接触输入。
 
 接触真值按已确定的采集协议生成：**有效按压 background=0，按压 target/limit=1，快速滑移的全部子事件=1**。不使用 `starts_in_contact`，也不按力阈值重新推翻这些标签。原始实测回归标签保留；background 的位置、六维力和滑移常规回归均设为无效，其中六维力另由无接触零力 loss 监督。按压接触样本继续使用已知的零切向运动标签，滑移沿用实测 XY 增量。
 
@@ -38,7 +38,7 @@ uv run evaluate.py --checkpoint runs/contact_gated_faster/best.pt --prepared-roo
 
 # 三预测头统一训练（2026-11-20 更新）
 
-当前默认模型为 `mvts/model_triple_head.py`。按图片实现：视觉 ResNet-18 经 4×4 池化形成 16×128 token；共享单通道声学 ResNet-18 分别编码六路麦克风，频率维池化并对麦克风取均值形成 28×128 token；最后一个声学 token 产生 Query，44 个声学/视觉 token 组成 Key/Value；融合结果送入 GRU(128,256)，三个 MLP 分别输出位置3维、六维力6维、滑移位移2维。图中虚线的接触概率/不确定性分支是可选项，此次没有启用。
+当前默认模型为 `mvts/model_triple_head/model_triple_head.py`。按图片实现：视觉 ResNet-18 经 4×4 池化形成 16×128 token；共享单通道声学 ResNet-18 分别编码六路麦克风，频率维池化并对麦克风取均值形成 28×128 token；最后一个声学 token 产生 Query，44 个声学/视觉 token 组成 Key/Value；融合结果送入 GRU(128,256)，三个 MLP 分别输出位置3维、六维力6维、滑移位移2维。图中虚线的接触概率/不确定性分支是可选项，此次没有启用。
 
 网络输入只有图像和音频；六维力、位置、滑移位移均为监督真值。默认随机初始化，不下载预训练权重。
 

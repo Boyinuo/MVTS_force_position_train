@@ -1,0 +1,2 @@
+mvts/model_contact_gated/best.pt filter=lfs diff=lfs merge=lfs -text
+mvts/model_triple_head/best.pt filter=lfs diff=lfs merge=lfs -text

@@ -22,7 +22,7 @@ import math
 
 import torch
 
-from .model_triple_head import ModelConfig as BaseConfig, TactileFusionNet as BaseNet
+from ..model_triple_head import ModelConfig as BaseConfig, TactileFusionNet as BaseNet
 
 
 @dataclass

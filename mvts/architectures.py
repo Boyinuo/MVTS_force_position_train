@@ -1,4 +1,4 @@
-"""Discover local model*.py modules and build their shared model interface."""
+"""Discover local model modules/packages and build their shared interface."""
 from importlib import import_module
 from pathlib import Path
 
@@ -9,8 +9,13 @@ LEGACY_MODELS = {"model": "model_sensor_nomal",
 
 
 def available_models():
-    names = {path.stem for path in Path(__file__).parent.glob("model*.py")
+    root = Path(__file__).parent
+    names = {path.stem for path in root.glob("model*.py")
              if path.is_file() and path.stem.isidentifier()}
+    names.update(path.name for path in root.glob("model*")
+                 if path.is_dir() and path.name.isidentifier()
+                 and (path / "__init__.py").is_file()
+                 and (path / f"{path.name}.py").is_file())
     return sorted(names | LEGACY_MODELS.keys())
 
 
@@ -19,7 +24,7 @@ def get_model_module(name=DEFAULT_MODEL):
         raise ValueError(f"Unknown model {name!r}; choose from {', '.join(available_models())}")
     module = import_module(f".{LEGACY_MODELS.get(name, name)}", package=__package__)
     if not hasattr(module, "ModelConfig") or not hasattr(module, "TactileFusionNet"):
-        raise ValueError(f"mvts/{name}.py must expose ModelConfig and TactileFusionNet")
+        raise ValueError(f"Model {name!r} must expose ModelConfig and TactileFusionNet")
     return module
 
 

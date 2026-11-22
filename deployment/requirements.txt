@@ -1,0 +1,3 @@
+# Install the project's main dependencies first (uv sync --frozen).
+PyQt5>=5.15,<6
+pyqtgraph>=0.13,<0.15
