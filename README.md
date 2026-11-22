@@ -79,6 +79,19 @@ uv run train.py --prepared-root .cache/data_final_v4_faster --device cuda --epoc
 
 屏蔽第五路麦克风无需重建缓存：训练命令增加 `--disable-mic-channels 5`（编号从1开始），并使用新的输出目录，例如 `--output runs/triple_head_no_mic5`。模型在声学编码前排除该路，对剩余5路特征求平均，缓存仍保持6路。多路可写 `--disable-mic-channels 2 5`，至少保留一路。选择保存在模型配置和checkpoint中，评估、推理、测速及恢复训练会自动沿用；恢复时显式指定不同通道会报错。不能对原六路实验的 `last.pt` 直接添加屏蔽参数继续训练。
 
+`model_triple_head` 支持仅相机输入：训练时增加 `--image-only`，不创建或运行声学骨干和声学投影，也不加入声学 token。16 个视觉 token 的均值生成 Query，视觉 token 作为 Key/Value，经注意力和 GRU 后仍输出位置、六维力和滑移三个预测头。默认不加此参数时保留原来的视听融合行为；`--image-only` 不能与 `--disable-mic-channels` 同用。
+
+```powershell
+uv run train.py --model model_triple_head --prepared-root .cache/data_final_v4 --image-only --device cuda --epochs 30 --batch-size 8 --output runs/triple_head_image_only
+
+# 纯视觉 checkpoint 只需图像即可预测，无需 --npz 或 --prepared-window
+uv run predict.py --checkpoint runs/triple_head_image_only/best.pt --image PATH_TO_IMAGE --output runs/image_only_prediction.json
+```
+
+纯视觉训练可复用原缓存（现有数据加载/统计仍读取缓存音频，但音频不传入网络），按压/滑移事件数量、时序和监督标签保持原规则。同一图像窗口的多个事件复用视觉特征，由 GRU 逐事件更新状态；图像之间没有新增的声学观测。`image_only` 保存到 checkpoint，评估、推理和恢复训练自动沿用；恢复时省略该参数即可，显式指定与 checkpoint 不同的 `--image-only` / `--no-image-only` 会报错。切换输入模态需使用新的输出目录重新训练。
+
+Python 调用：`build_model("model_triple_head", {"image_only": True})`，然后使用 `model(image)`、`model.forward_sequence(image, sequence_length=10)`，或 `model.eval(); model.step(image=image, frame_id=frame_id)`。后续同帧事件可调用 `model.step()`，新轨迹调用 `reset_state()`。原先传入 audio 的接口仍兼容，纯视觉模式忽略音频数值（序列接口仅借其形状确定事件数）。
+
 单事件推理延迟可在停止GPU训练后测量：`uv run benchmark_inference.py --device cuda --iterations 200 --warmup 30 --output runs/inference_latency_cuda.json`。默认使用 `runs/triple_head_small/best.pt`，同时区分视觉token复用/刷新、纯网络/包含内存数据预处理。此次4070 SUPER实测纯网络平均约2.99ms/4.66ms；包含预处理约3.70ms/9.98ms。详细范围、P95和150Hz预算限制见 `TEST_REPORT.md`。
 
 ```powershell

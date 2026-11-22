@@ -36,7 +36,8 @@ def run_sequence_epoch(model, loader, device, stats, optimizer=None, max_steps=N
     print(f"{progress_label}: 0/{total} batches", flush=True)
     iterator = loader if max_steps is None else islice(loader, max_steps)
     for step, batch in enumerate(iterator, 1):
-        image, audio, target = [batch[k].to(device) for k in ("image", "audio", "target")]
+        image, target = [batch[k].to(device) for k in ("image", "target")]
+        audio = None if model.config.image_only else batch["audio"].to(device)
         h = []
         for sequence, order in zip(batch["sequence"], batch["order"].tolist()):
             previous = state.get(sequence)
@@ -46,7 +47,7 @@ def run_sequence_epoch(model, loader, device, stats, optimizer=None, max_steps=N
         if training:
             optimizer.zero_grad(set_to_none=True)
         with torch.set_grad_enabled(training):
-            result = model.forward_sequence(image, audio, torch.cat(h, dim=1))
+            result = model.forward_sequence(image, audio, torch.cat(h, dim=1), sequence_length=target.shape[1])
             losses = [F.smooth_l1_loss(result[k], target[..., sl]) for k, sl in
                       (("position", slice(0,3)), ("wrench", slice(3,9)), ("slip", slice(9,11)))]
             loss = sum(w*v for w,v in zip((position_weight,wrench_weight,slip_weight),losses))
@@ -116,6 +117,9 @@ def train_prepared(args):
         if args.disable_mic_channels is not None and sorted(args.disable_mic_channels) != saved_channels:
             raise ValueError("Resume microphone selection differs from checkpoint; start a new run to change channels")
         args.disable_mic_channels = saved_channels
+        if args.image_only is not None and args.image_only != model.config.image_only:
+            raise ValueError("Resume image_only differs from checkpoint; start a new run to change input modalities")
+        args.image_only = model.config.image_only
         for name in ("seed","batch_size","lr","weight_decay","val_fraction","test_fraction", "max_groups",
                      "max_steps","max_eval_steps","position_weight","wrench_weight","slip_weight"):
             if getattr(args,name) != checkpoint["args"][name]:
@@ -126,8 +130,11 @@ def train_prepared(args):
         stats = checkpoint["stats"]
     else:
         args.disable_mic_channels = sorted(args.disable_mic_channels or [])
+        args.image_only = bool(args.image_only)
         stats = fit_prepared_statistics(split["train"])
-        model = build_model("model_triple_head", {"disabled_mic_channels": args.disable_mic_channels}).to(device)
+        model = build_model("model_triple_head", {"disabled_mic_channels": args.disable_mic_channels,
+                                                  "image_only": args.image_only}).to(device)
+    print(f"Input mode: {'camera images only' if model.config.image_only else 'camera images + microphones'}", flush=True)
     print(f"Microphones enabled: {[i+1 for i in model.active_mic_indices]}; "
           f"disabled: {list(model.config.disabled_mic_channels)}", flush=True)
     loaders = {k:make_loader(v,stats,args.batch_size,args.workers,k=="train",args.seed) for k,v in split.items()}

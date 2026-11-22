@@ -28,6 +28,8 @@ def parse_args():
                              help="Read a data directory directly instead of selecting --dataset")
     parser.add_argument("--output", default="runs/train")
     parser.add_argument("--prepared-root", help="Triple-head prepared cache from preprocess.py")
+    parser.add_argument("--image-only", action=argparse.BooleanOptionalAction, default=None,
+                        help="Triple-head: use camera images only, bypassing audio. Resume defaults to checkpoint setting")
     parser.add_argument("--disable-mic-channels", type=int, nargs="+", choices=range(1, 7),
                         help="Triple-head: exclude microphone numbers 1..6; e.g. 5. Resume defaults to checkpoint setting")
     parser.add_argument("--model", choices=available_models(),
@@ -60,6 +62,8 @@ def parse_args():
     parser.add_argument("--resume", help="Path to last.pt; retain the original training/split options")
     args = parser.parse_args()
     if args.disable_mic_channels is not None:
+        if args.image_only:
+            parser.error("--image-only cannot be combined with --disable-mic-channels")
         if len(set(args.disable_mic_channels)) != len(args.disable_mic_channels) or len(args.disable_mic_channels) == 6:
             parser.error("--disable-mic-channels must be distinct and leave at least one microphone enabled")
     if args.data_root is None:
@@ -77,6 +81,11 @@ def parse_args():
 def main():
     args = parse_args()
     validate_positive_arguments(args)
+    if args.image_only is not None:
+        selected_model = args.model or (torch.load(args.resume, map_location="cpu", weights_only=True).get(
+            "model_name", "model") if args.resume else DEFAULT_MODEL)
+        if selected_model != "model_triple_head":
+            raise ValueError("--image-only/--no-image-only is supported only by model_triple_head")
     if args.model == "model_contact_gated":
         from mvts.contact_engine import train_contact_prepared
         return train_contact_prepared(args)

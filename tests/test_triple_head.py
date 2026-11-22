@@ -160,7 +160,141 @@ def test_disabled_microphones_survive_checkpoint_roundtrip(tmp_path):
     # Checkpoints predating microphone selection still enable all six channels.
     old_config = model.config.to_dict()
     old_config.pop("disabled_mic_channels")
-    assert build_model("model_triple_head",old_config).active_mic_indices == tuple(range(6))
+    old_config.pop("image_only")
+    legacy = build_model("model_triple_head",old_config)
+    legacy.load_state_dict(model.state_dict())
+    assert legacy.active_mic_indices == tuple(range(6))
+    assert not legacy.config.image_only
+
+
+def test_image_only_ignores_audio_and_backpropagates_visual_features():
+    model = build_model("model_triple_head", {"image_only": True, "dropout": 0}).eval()
+    image = torch.randn(1,3,64,64)
+    audio = torch.full((1,2,6,64,28), float("nan"), requires_grad=True)
+    memories = []
+    hook = model.attention.register_forward_pre_hook(lambda m,args: memories.append(args[1].shape[1]))
+    result = model.forward_sequence(image, audio)
+    with torch.no_grad():
+        camera_only = model.forward_sequence(image, sequence_length=2)
+        single = model(image)
+    for key, size in (("position",3), ("wrench",6), ("slip",2)):
+        assert result[key].shape == (1,2,size)
+        torch.testing.assert_close(result[key], camera_only[key])
+        torch.testing.assert_close(result[key][:,0], single[key])
+    sum(result[k].square().mean() for k in ("position","wrench","slip")).backward()
+    assert audio.grad is None
+    assert model.audio_backbone is None and model.audio_projection is None
+    assert model.active_mic_indices == () and set(memories) == {16}
+    for parameter in (model.vision_backbone.stem[0].weight, model.query.weight,
+                      model.attention.in_proj_weight, model.gru.weight_hh_l0,
+                      model.position_head[-1].weight, model.force_head[-1].weight, model.slip_head[-1].weight):
+        assert parameter.grad is not None and torch.isfinite(parameter.grad).all()
+        assert parameter.grad.abs().sum() > 0
+    hook.remove()
+
+
+def test_image_only_streaming_caches_visual_features_and_matches_sequence():
+    model = build_model("model_triple_head", {"image_only": True, "dropout": 0}).eval()
+    image = torch.randn(1,3,64,64)
+    with torch.no_grad():
+        expected = model.forward_sequence(image, sequence_length=2)
+    calls = []
+    hook = model.vision_backbone.register_forward_hook(lambda *args: calls.append(1))
+    a = model.step(image=image, frame_id="a")
+    b = model.step(frame_id="a")
+    assert len(calls) == 1
+    reset = model.step(image=image, reset=True)
+    for key in ("position", "wrench", "slip"):
+        torch.testing.assert_close(a[key], expected[key][:,0])
+        torch.testing.assert_close(b[key], expected[key][:,1])
+        torch.testing.assert_close(reset[key], a[key])
+    with pytest.raises(ValueError, match="image"):
+        model.step(frame_id="missing")
+    model.reset_state()
+    with pytest.raises(ValueError, match="image"):
+        model.step()
+    hook.remove()
+
+
+def test_image_only_invalid_configuration_and_missing_audio():
+    with pytest.raises(ValueError, match="image_only"):
+        build_model("model_triple_head", {"image_only": True, "disabled_mic_channels": [5]})
+    model = build_model("model_triple_head", {"image_only": True}).eval()
+    image = torch.randn(1,3,64,64)
+    for length in (0, -1, 1.5, True):
+        with pytest.raises(ValueError, match="sequence_length"):
+            model.forward_sequence(image, sequence_length=length)
+    with pytest.raises(ValueError, match="sequence_length"):
+        model.forward_sequence(image, torch.randn(1,2,6,64,28), sequence_length=3)
+    model = build_model("model_triple_head").eval()
+    with pytest.raises(ValueError, match="log-mel"):
+        model(image)
+    with pytest.raises(ValueError, match="sequence audio"):
+        model.forward_sequence(image)
+
+
+@pytest.mark.parametrize("image_only", [False, True])
+def test_input_mode_train_resume_evaluate_and_predict(tmp_path, image_only):
+    import subprocess
+    import sys
+    from pathlib import Path
+    from PIL import Image
+    from mvts.dual_rate_data import CACHE_VERSION
+    from mvts.engine import load_checkpoint
+
+    cache = tmp_path/"cache"
+    cache.mkdir()
+    image = cache/"image.png"
+    Image.new("RGB", (64,64), (100,120,140)).save(image)
+    records = []
+    for i in range(3):
+        target = np.full((2,11), float(i), dtype=np.float32)
+        filename = f"{i}.npz"
+        np.savez(cache/filename, audio=np.zeros((2,6,64,28), dtype=np.float32), target=target)
+        records.append({"id": str(i), "file": filename, "image": "image.png", "kind": "slide",
+                        "group": str(i), "sequence": str(i), "order": 0, "events": 2,
+                        "target": target.tolist()})
+    (cache/"manifest.json").write_text(json.dumps({"version": CACHE_VERSION,
+        "features": feature_config().to_dict(), "smoke_test": True, "records": records}), encoding="utf-8")
+    (cache/"report.json").write_text("{}", encoding="utf-8")
+    root = Path(__file__).resolve().parents[1]
+
+    def run(*args, error=None):
+        result = subprocess.run([sys.executable, *map(str,args)], cwd=root,
+                                text=True, capture_output=True, timeout=120)
+        if error:
+            assert result.returncode != 0 and error in result.stderr, result.stdout+result.stderr
+        else:
+            assert result.returncode == 0, result.stdout+result.stderr
+
+    output = tmp_path/"run"
+    base = ["train.py", "--prepared-root", cache, "--output", output, "--device", "cpu",
+            "--threads", 2, "--batch-size", 1, "--max-steps", 1, "--max-eval-steps", 1]
+    run(*base, "--image-only" if image_only else "--no-image-only", "--epochs", 1)
+    run(*base, "--resume", output/"last.pt", "--epochs", 2)
+    config = json.loads((output/"config.json").read_text(encoding="utf-8"))
+    assert config["model"]["image_only"] == config["training"]["image_only"] == image_only
+    restored, checkpoint, _ = load_checkpoint(output/"last.pt")
+    assert restored.config.image_only == image_only
+    assert (restored.audio_backbone is None) == image_only
+    assert checkpoint["epoch"] == 2
+    run(*base, "--resume", output/"last.pt", "--epochs", 3,
+        "--no-image-only" if image_only else "--image-only",
+        error="Resume image_only differs")
+    run(*base, "--image-only", "--disable-mic-channels", 5, error="cannot be combined")
+    run(*base, "--image-only", "--model", "model_contact_gated", error="supported only by model_triple_head")
+    run("evaluate.py", "--checkpoint", output/"best.pt", "--prepared-root", cache,
+        "--device", "cpu", "--output", tmp_path/"evaluation")
+    source = [] if image_only else ["--prepared-window", cache/"0.npz"]
+    run("predict.py", "--checkpoint", output/"best.pt", "--image", image, *source, "--device", "cpu",
+        "--state-out", tmp_path/"state.pt", "--output", tmp_path/"prediction.json")
+    prediction = json.loads((tmp_path/"prediction.json").read_text(encoding="utf-8"))
+    rows = [prediction] if image_only else prediction["predictions"]
+    assert len(rows) == (1 if image_only else 2)
+    for row in rows:
+        assert len(row["prediction"]) == 11
+        assert np.isfinite(list(row["prediction"].values())).all()
+    assert (tmp_path/"state.pt").is_file()
 
 
 @pytest.mark.parametrize("layout", ["attempts", "trajectories"])

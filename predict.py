@@ -1,4 +1,4 @@
-"""Predict position and wrench for one exported image + NPZ audio window."""
+"""Predict from an image and optional audio (image-only checkpoints need no NPZ)."""
 import argparse
 
 import numpy as np
@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--image", required=True)
-    source = parser.add_mutually_exclusive_group(required=True)
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--npz", help="Original press ADC export")
     source.add_argument("--prepared-window", help="Prepared slide/press events/*.npz (unnormalised log-mel)")
     parser.add_argument("--force-index", type=int,
@@ -30,30 +30,38 @@ def main():
     model, checkpoint, config = load_checkpoint(args.checkpoint, device)
     contact_aware = model.model_name == "model_contact_gated"
     triple = model.model_name in ("model_triple_head", "model_contact_gated")
+    image_only = model.model_name == "model_triple_head" and model.config.image_only
+    if not (args.npz or args.prepared_window) and not image_only:
+        parser.error("--npz or --prepared-window is required for checkpoints using audio")
+    if args.force_index is not None and not args.npz:
+        parser.error("--force-index requires --npz")
     stats = checkpoint["stats"]
-    with np.load(args.npz or args.prepared_window, allow_pickle=False) as data:
-        if args.prepared_window:
-            if not triple or args.force_index is not None:
-                raise ValueError("Prepared-window requires triple-head; predicts the complete ordered window")
-            prepared_audio = torch.from_numpy(data["audio"].copy())
-            adc = None
-        else:
-            force_index = args.force_index
-            if triple and force_index is None and data["adc"].ndim == 3:
-                force_index = len(data["adc"]) - 1
-            adc = torch.from_numpy(extract_sample_audio(data, config, force_index).astype(np.float32))
-        contact = args.previous_contact
-        if contact is None:
-            contact = int(data["starts_in_contact"].item()) if model.config.use_contact else 0
-    sequence = args.prepared_window is not None or adc.ndim == 3
-    if args.prepared_window:
-        audio = prepared_audio
+    if not (args.npz or args.prepared_window):
+        audio, sequence = None, False
     else:
-        if not sequence:
-            adc = adc.unsqueeze(0)
-        audio = LogMel(config)(adc)
-    audio = (audio - torch.tensor(stats["audio_mean"])[:, None, None]) / torch.tensor(
-        stats["audio_std"])[:, None, None]
+        with np.load(args.npz or args.prepared_window, allow_pickle=False) as data:
+            if args.prepared_window:
+                if not triple or args.force_index is not None:
+                    raise ValueError("Prepared-window requires triple-head; predicts the complete ordered window")
+                prepared_audio = torch.from_numpy(data["audio"].copy())
+                adc = None
+            else:
+                force_index = args.force_index
+                if triple and force_index is None and data["adc"].ndim == 3:
+                    force_index = len(data["adc"]) - 1
+                adc = torch.from_numpy(extract_sample_audio(data, config, force_index).astype(np.float32))
+            contact = args.previous_contact
+            if contact is None:
+                contact = int(data["starts_in_contact"].item()) if model.config.use_contact else 0
+        sequence = args.prepared_window is not None or adc.ndim == 3
+        if args.prepared_window:
+            audio = prepared_audio
+        else:
+            if not sequence:
+                adc = adc.unsqueeze(0)
+            audio = LogMel(config)(adc)
+        audio = (audio - torch.tensor(stats["audio_mean"])[:, None, None]) / torch.tensor(
+            stats["audio_std"])[:, None, None]
     model.eval()
     with torch.inference_mode():
         if triple:
@@ -71,7 +79,7 @@ def main():
                 if args.state_in:
                     raise ValueError("Use either --state-in or --previous-contact for the predicted prior state")
                 previous_state = torch.tensor([args.previous_contact],device=device)
-            result = model.forward_sequence(image, audio.unsqueeze(0).to(device), hidden)
+            result = model.forward_sequence(image, None if audio is None else audio.unsqueeze(0).to(device), hidden)
             pred = torch.cat([result[k] for k in ("position", "wrench", "slip")], dim=-1)[0].cpu()
             if contact_aware:
                 gated = model.gate_outputs(result,previous_state)

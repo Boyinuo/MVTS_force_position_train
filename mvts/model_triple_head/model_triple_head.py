@@ -134,6 +134,8 @@ Q = last audio token; K,V = concatenate(audio, latest available visual tokens).
 The 128-D fused token updates GRU(128,256); three heads predict 3/6/2 values.
 Targets (including wrench) are never fed back into the estimator.
 Use forward_sequence for ordered training and step for cached streaming inference.
+With image_only=True, omit audio: only 16 visual tokens enter attention, using
+their mean to form Q, and the acoustic encoder/projection are not constructed.
 """
 from dataclasses import asdict, dataclass
 
@@ -156,6 +158,7 @@ class ModelConfig:
     audio_samples_before: int = 4000
     audio_samples_after: int = 0
     disabled_mic_channels: tuple[int, ...] = ()  # Human numbering: 1 through 6.
+    image_only: bool = False
 
     def __post_init__(self):
         channels = tuple(self.disabled_mic_channels)
@@ -163,6 +166,8 @@ class ModelConfig:
                 or len(set(channels)) != len(channels) or len(channels) == 6):
             raise ValueError("disabled_mic_channels must be distinct numbers 1..6, leaving at least one enabled")
         self.disabled_mic_channels = tuple(sorted(channels))
+        if self.image_only and channels:
+            raise ValueError("image_only cannot be combined with disabled_mic_channels")
 
     def to_dict(self):
         return asdict(self)
@@ -173,16 +178,17 @@ class TactileFusionNet(nn.Module):
         super().__init__()
         self.config = config or ModelConfig()
         c = self.config
-        self.active_mic_indices = tuple(i for i in range(6) if i + 1 not in c.disabled_mic_channels)
+        self.active_mic_indices = (() if c.image_only else
+                                   tuple(i for i in range(6) if i + 1 not in c.disabled_mic_channels))
         if c.use_contact:
             raise ValueError("The diagram does not use a ground-truth contact input")
         if c.audio_frames != 28 or c.audio_samples_before != 4000 or c.audio_samples_after != 0 or c.audio_alignment_mode != "before_only":
             raise ValueError("Triple-head model requires 4000 causal samples and 28 STFT frames")
         self.vision_backbone = ResNet18Features()
         # A shared single-channel encoder, applied independently to six mics.
-        self.audio_backbone = ResNet18Features(audio=True, in_channels=1)
+        self.audio_backbone = None if c.image_only else ResNet18Features(audio=True, in_channels=1)
         self.vision_projection = nn.Linear(512, c.d_model)
-        self.audio_projection = nn.Linear(512, c.d_model)
+        self.audio_projection = None if c.image_only else nn.Linear(512, c.d_model)
         self.position_embedding = nn.Parameter(torch.randn(1, 44, c.d_model) * .02)
         self.modality_embedding = nn.Parameter(torch.randn(1, 2, c.d_model) * .02)
         self.query = nn.Linear(c.d_model, c.d_model)
@@ -206,7 +212,9 @@ class TactileFusionNet(nn.Module):
         return self.vision_projection(features.flatten(2).transpose(1, 2))
 
     def encode_audio(self, audio):
-        if audio.ndim != 4 or audio.shape[1:] != (6, 64, 28):
+        if self.config.image_only:
+            raise RuntimeError("Audio encoding is disabled in image_only mode")
+        if audio is None or audio.ndim != 4 or audio.shape[1:] != (6, 64, 28):
             raise ValueError("Expected log-mel [B,6,64,28]")
         b = audio.shape[0]
         if self.config.disabled_mic_channels:
@@ -216,12 +224,17 @@ class TactileFusionNet(nn.Module):
         tokens = self.audio_projection(features.mean(2).transpose(1, 2))
         return tokens.reshape(b, microphones, 28, self.config.d_model).mean(1)
 
-    def fuse(self, visual, audio):
-        acoustic = self.encode_audio(audio)
-        memory = torch.cat((acoustic + self.modality_embedding[:, :1],
-                            visual + self.modality_embedding[:, 1:]), dim=1)
-        memory = memory + self.position_embedding
-        q = self.query(memory[:, 27:28])
+    def fuse(self, visual, audio=None):
+        if self.config.image_only:
+            # Only the 16 spatial tokens participate; no dummy acoustic tokens.
+            memory = visual + self.modality_embedding[:, 1:] + self.position_embedding[:, 28:]
+            q = self.query(memory.mean(dim=1, keepdim=True))
+        else:
+            acoustic = self.encode_audio(audio)
+            memory = torch.cat((acoustic + self.modality_embedding[:, :1],
+                                visual + self.modality_embedding[:, 1:]), dim=1)
+            memory = memory + self.position_embedding
+            q = self.query(memory[:, 27:28])
         fused, _ = self.attention(q, memory, memory, need_weights=False)
         return self.fusion_norm(fused + q)
 
@@ -229,17 +242,31 @@ class TactileFusionNet(nn.Module):
         return {"position": self.position_head(states), "wrench": self.force_head(states),
                 "slip": self.slip_head(states)}
 
-    def forward(self, image, audio, starts_in_contact=None, *, hidden=None, visual_tokens=None):
+    def forward(self, image, audio=None, starts_in_contact=None, *, hidden=None, visual_tokens=None):
         visual = self.encode_visual(image) if visual_tokens is None else visual_tokens
         states, hidden = self.gru(self.fuse(visual, audio), hidden)
         return {**self._predict(states[:, 0]), "hidden": hidden, "visual_tokens": visual}
 
-    def forward_sequence(self, image, audio, hidden=None):
-        """One image anchor per ordered interval; gradients span all its events."""
-        if audio.ndim != 5:
+    def forward_sequence(self, image, audio=None, hidden=None, *, sequence_length=None):
+        """One image anchor per interval. Image-only events can omit audio.
+
+        In image-only mode audio supplies only the event count for compatibility;
+        otherwise use sequence_length (defaults to one event).
+        """
+        if audio is not None and (audio.ndim != 5 or audio.shape[1] < 1):
             raise ValueError("Expected sequence audio [B,T,6,64,28]")
+        if not self.config.image_only and audio is None:
+            raise ValueError("Expected sequence audio [B,T,6,64,28]")
+        length = audio.shape[1] if audio is not None else 1
+        if sequence_length is not None:
+            if type(sequence_length) is not int or sequence_length < 1:
+                raise ValueError("sequence_length must be a positive integer")
+            if audio is not None and sequence_length != length:
+                raise ValueError("sequence_length must match audio event count")
+            length = sequence_length
         visual = self.encode_visual(image)
-        fused = torch.cat([self.fuse(visual, audio[:, t]) for t in range(audio.shape[1])], dim=1)
+        fused = torch.cat([self.fuse(visual, None if self.config.image_only else audio[:, t])
+                           for t in range(length)], dim=1)
         states, hidden = self.gru(fused, hidden)
         return {**self._predict(states), "hidden": hidden}
 
@@ -249,7 +276,7 @@ class TactileFusionNet(nn.Module):
         self._stream_frame_id = None
 
     @torch.no_grad()
-    def step(self, audio, image=None, *, frame_id=None, reset=False):
+    def step(self, audio=None, image=None, *, frame_id=None, reset=False):
         """Inference only. Reset at a new trajectory/contact experiment.
 
         Supply an image on first use/new frame; omit it for intervening events.
