@@ -4,6 +4,7 @@ python deployment_viewer.py --model model_contact_gated
 python deployment_viewer.py --model model_triple_head.py
 """
 import argparse
+from copy import copy
 from pathlib import Path
 import sys
 import time
@@ -13,17 +14,19 @@ import numpy as np
 
 # Support both `python deployment/deployment_viewer.py` and `python -m deployment.deployment_viewer`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from deployment.replay import ROOT, precompute, save_results
+from deployment.replay import ROOT, precompute, save_results, select_sequence
 
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True,
         help="Required model name or .py path; automatically loads best.pt from its model directory")
-    p.add_argument("--data-root", type=Path, default=ROOT / "deployment/test_data/deployment_test_150hz")
+    p.add_argument("--data-root", type=Path, default=ROOT / "deployment/test_data/deployment_test_150hz_t0232")
     p.add_argument("--sequence", help="Slide sequence ID; defaults to first slide (slide_t0242 in sample data)")
     p.add_argument("--hz", type=float, default=150, help="Nominal inference-event playback frequency")
     p.add_argument("--render-fps", type=int, default=60, help="GUI refresh target (default: 60), separate from event frequency")
+    p.add_argument("--image-only-comparison", action=argparse.BooleanOptionalAction, default=True,
+        help="Add a 15 Hz camera-only comparison using best_image_only.pt beside the selected best.pt (default: enabled)")
     p.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     p.add_argument("--threads", type=int, default=4)
     p.add_argument("--output", type=Path, help="Results directory; default deployment/results/TIMESTAMP")
@@ -62,17 +65,21 @@ def main():
 def create_window(args, QtCore, QtGui, QtWidgets, pg):
     """Qt imports stay optional for the headless inference/export path."""
     pg.setConfigOptions(antialias=True, background="#f7f9fc", foreground="#4c6380", imageAxisOrder="row-major")
-    teal, orange = "#119ba1", "#d88935"
+    teal, orange, purple = "#119ba1", "#d88935", "#7954c5"
 
     class Worker(QtCore.QThread):
         progress = QtCore.pyqtSignal(str, int, int)
         ready = QtCore.pyqtSignal(object)
         failed = QtCore.pyqtSignal(str)
 
+        def __init__(self, run_args, parent):
+            super().__init__(parent)
+            self.args = copy(run_args)
+
         def run(self):
             try:
-                data = precompute(args, self.progress.emit)
-                save_results(data, args.output)
+                data = precompute(self.args, self.progress.emit)
+                save_results(data, self.args.output)
                 self.ready.emit(data)
             except Exception:
                 self.failed.emit(traceback.format_exc())
@@ -93,11 +100,13 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.last_image = None
             self.last_render = None
             self.render_fps = 0.
+            self.output_base = args.output
+            self.run_count = 0
             self.setStyleSheet("""
                 QMainWindow, QWidget { background: #edf1f7; color: #365478; font-family: 'Microsoft YaHei'; font-size: 11px; }
                 QGroupBox { background: #f7f9fc; border: 1px solid #abc0d9; border-radius: 9px; margin-top: 8px; padding: 12px 8px 5px; font-weight: bold; }
                 QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; }
-                QPushButton, QComboBox { background: #fff; border: 1px solid #b6c8dd; border-radius: 4px; padding: 5px 9px; }
+                QPushButton, QComboBox, QLineEdit { background: #fff; border: 1px solid #b6c8dd; border-radius: 4px; padding: 5px 9px; }
                 QPushButton:disabled { color: #a5b1c0; }
                 QPushButton:hover { border-color: #119ba1; }
                 QTabWidget::pane { border: 0; }
@@ -118,6 +127,19 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.mode.setStyleSheet("color: #b86c23; font-weight: bold; font-size: 13px")
             top.addWidget(self.mode)
             outer.addLayout(top)
+            data_controls = QtWidgets.QHBoxLayout()
+            data_controls.addWidget(QtWidgets.QLabel("测试数据目录"))
+            self.data_root_edit = QtWidgets.QLineEdit(str(args.data_root))
+            self.data_root_edit.setToolTip("选择包含 manifest.json 和 events.jsonl 的部署测试数据目录")
+            data_controls.addWidget(self.data_root_edit, 1)
+            self.browse_data = QtWidgets.QPushButton("浏览…")
+            self.browse_data.clicked.connect(self.choose_data_root)
+            data_controls.addWidget(self.browse_data)
+            self.load_data = QtWidgets.QPushButton("加载并推理")
+            self.load_data.clicked.connect(self.start_precompute)
+            self.data_root_edit.returnPressed.connect(self.start_precompute)
+            data_controls.addWidget(self.load_data)
+            outer.addLayout(data_controls)
             self.status = QtWidgets.QLabel("等待预计算；完成全部推理后开始播放")
             self.details = QtWidgets.QLabel(str(args.data_root))
             outer.addWidget(self.status)
@@ -140,8 +162,12 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             camera_layout.addWidget(self.camera, 1)
             grid.addWidget(camera, 0, 0)
 
-            trajectory, trajectory_layout = self.panel("02  预测接触点与实际接触点", "青色圆点：预测   橙色叉点/虚线：实测   ·   滚轮缩放，左键拖动平移，右键拖动缩放")
+            trajectory, trajectory_layout = self.panel("02  预测接触点与实际接触点", "青色圆点：主模型   紫色方点：纯视觉 15 Hz   橙色叉点：GT   ·   滚轮缩放 / 左键平移")
             view_controls = QtWidgets.QHBoxLayout()
+            self.show_image_only = QtWidgets.QCheckBox("显示纯视觉 15 Hz")
+            self.show_image_only.setChecked(True)
+            self.show_image_only.toggled.connect(self.update_comparison_visibility)
+            view_controls.addWidget(self.show_image_only)
             view_controls.addStretch()
             self.fit_xy = QtWidgets.QPushButton("适应已播轨迹")
             self.fit_xy.clicked.connect(self.fit_trajectory)
@@ -165,35 +191,46 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
                 symbol="o", symbolSize=4, symbolBrush=teal, symbolPen=pg.mkPen(teal, width=.7), pxMode=True)
             self.xy_true = self.xy.plot(pen=pg.mkPen(orange, width=1.7, style=QtCore.Qt.DashLine), connect="finite",
                 symbol="x", symbolSize=5, symbolPen=pg.mkPen(orange, width=1), pxMode=True)
+            self.xy_image_only = self.xy.plot(pen=pg.mkPen(purple, width=1.8), connect="finite",
+                symbol="s", symbolSize=5, symbolPen=purple, symbolBrush=purple, pxMode=True)
+            self.image_only_dot = self.xy.plot(pen=None, symbol="s", symbolSize=9, symbolPen=purple, symbolBrush=purple)
+            self.image_only_dot.setZValue(9)
             self.pred_dot = self.xy.plot(pen=None, symbol="o", symbolBrush=teal, symbolPen=teal, symbolSize=8)
             self.true_dot = self.xy.plot(pen=None, symbol="x", symbolPen=pg.mkPen(orange, width=2), symbolSize=10)
             self.pred_dot.setZValue(10)
             self.true_dot.setZValue(10)
             position_widget = pg.GraphicsLayoutWidget()
-            self.position_plots, self.position_lines = [], []
+            self.position_plots, self.position_lines, self.position_image_only = [], [], []
             for i, label in enumerate(("X (mm)", "Y (mm)", "Δz (mm)")):
                 plot = position_widget.addPlot(row=i, col=0)
                 self.style_plot(plot, "时间 (s)", label)
                 self.position_plots.append(plot)
                 self.position_lines.append((plot.plot(pen=pg.mkPen(teal, width=1.5), connect="finite"),
                     plot.plot(pen=pg.mkPen(orange, style=QtCore.Qt.DashLine), connect="finite")))
+                self.position_image_only.append(plot.plot(pen=pg.mkPen(purple, width=1.6),
+                    symbol="s", symbolSize=4, symbolPen=purple, symbolBrush=purple, connect="finite"))
             self.tabs.addTab(position_widget, "位置时间曲线")
             self.position_text = QtWidgets.QLabel("预测 / 实测位置")
             self.metrics = QtWidgets.QLabel("XY 误差与接触状态")
+            self.comparison_text = QtWidgets.QLabel("纯视觉 15 Hz 对照：等待预计算")
+            self.comparison_text.setStyleSheet(f"color: {purple}; font-size: 10px")
             trajectory_layout.addWidget(self.position_text)
             trajectory_layout.addWidget(self.metrics)
+            trajectory_layout.addWidget(self.comparison_text)
             grid.addWidget(trajectory, 0, 1)
 
-            wrench, wrench_layout = self.panel("03  六维力数据", "青色：预测   橙色虚线：实测   ·   力 N / 力矩 N·m")
+            wrench, wrench_layout = self.panel("03  六维力数据", "青色：主模型   紫色：纯视觉 15 Hz   橙色虚线：GT   ·   力 N / 力矩 N·m")
             self.wrench_widget = pg.GraphicsLayoutWidget()
             wrench_layout.addWidget(self.wrench_widget, 1)
-            self.wrench_plots, self.wrench_lines = [], []
+            self.wrench_plots, self.wrench_lines, self.wrench_image_only = [], [], []
             for i, label in enumerate(("Fx / N", "Fy / N", "Fz / N", "Mx / N·m", "My / N·m", "Mz / N·m")):
                 plot = self.wrench_widget.addPlot(row=i // 3, col=i % 3, title=label)
                 self.style_plot(plot, "时间 (s)" if i >= 3 else None, None)
                 self.wrench_plots.append(plot)
                 self.wrench_lines.append((plot.plot(pen=pg.mkPen(teal, width=1.4)),
                     plot.plot(pen=pg.mkPen(orange, style=QtCore.Qt.DashLine))))
+                self.wrench_image_only.append(plot.plot(pen=pg.mkPen(purple, width=1.5),
+                    symbol="s", symbolSize=3, symbolPen=purple, symbolBrush=purple))
             grid.addWidget(wrench, 1, 0)
 
             microphones, mic_layout = self.panel("04  六通道麦克风梅尔频谱", "当前事件之前 80 ms · 训练 Log-Mel（未标准化）· 固定色阶 −10 ～ −2.5")
@@ -273,11 +310,49 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.style_plot(widget, bottom, left)
             return widget
 
+        def choose_data_root(self):
+            directory = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "选择部署测试数据目录", self.data_root_edit.text())
+            if directory:
+                self.data_root_edit.setText(directory)
+
+        def set_loading(self, loading):
+            for widget in (self.data_root_edit, self.browse_data, self.load_data):
+                widget.setEnabled(not loading)
+            for widget in (self.play, self.replay, self.clear, self.freeze, self.speed_box, self.seek):
+                widget.setEnabled(not loading and self.data is not None)
+
         def start_precompute(self):
-            self.worker = Worker(self)
+            if hasattr(self, "worker") and self.worker.isRunning():
+                return
+            try:
+                text = self.data_root_edit.text().strip()
+                if not text:
+                    raise ValueError("请选择测试数据目录")
+                root = Path(text).expanduser().resolve()
+                if not (root / "manifest.json").is_file():
+                    raise ValueError(f"缺少 manifest.json：{root}")
+                # A different package gets its own first sequence, rather than a stale CLI ID.
+                sequence = getattr(args, "sequence", None) if root == Path(args.data_root).resolve() else None
+                rows = select_sequence(root, sequence)
+            except (OSError, ValueError, KeyError) as exc:
+                self.failed(str(exc))
+                return
+            self.pause()
+            args.data_root, args.sequence = root, rows[0]["sequence"]
+            if self.run_count:
+                args.output = self.output_base / f"reload_{time.time_ns()}_{args.sequence}"
+            self.run_count += 1
+            self.data_root_edit.setText(str(root))
+            self.set_loading(True)
+            self.progress.setRange(0, 0)
+            self.progress.show()
+            self.status.setText("正在读取测试数据并预计算…")
+            self.worker = Worker(args, self)
             self.worker.progress.connect(self.on_progress)
             self.worker.ready.connect(self.loaded)
             self.worker.failed.connect(self.failed)
+            self.worker.finished.connect(lambda: self.set_loading(False))
             self.worker.start()
 
         def on_progress(self, stage, number, total):
@@ -286,6 +361,8 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.status.setText(f"{stage} {number}/{total} · 全部完成后开始显示，保持序列状态连续")
 
         def failed(self, error):
+            self.pause()
+            self.progress.hide()
             self.status.setText("预计算失败；未开始播放")
             self.details.setText(error.strip().splitlines()[-1])
             print(error, file=sys.stderr)
@@ -296,6 +373,9 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
 
         def loaded(self, data):
             self.data = data
+            self.last_image = None
+            self.render_fps = 0.
+            self.current = self.trail_start = 0
             self.progress.hide()
             self.times = data.times(args.hz)
             self.seek.setRange(0, len(data.metadata) - 1)
@@ -308,8 +388,13 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.details.setText(f"{info['sequence']} · {len(data.metadata)} 子事件 / {info['image_updates']} 张图像 · "
                 f"{info['device']} · 预计算 {info['precompute_seconds']:.2f} s · 显示刷新上限 {args.render_fps} FPS")
             self.saved.setText(f"结果已自动保存：{args.output}")
-            for i in info["disabled_mic_channels"]:
-                self.mic_plots[i - 1].setTitle(f"MIC {i} / A{i - 1} · 禁用", size="10pt", **{"font-family": "Microsoft YaHei"})
+            self.show_image_only.setEnabled(data.image_only is not None)
+            self.update_comparison_visibility()
+            if data.image_only is None:
+                self.comparison_text.setText("纯视觉 15 Hz 对照未启用")
+            for i, plot in enumerate(self.mic_plots, 1):
+                suffix = " · 禁用" if i in info["disabled_mic_channels"] else ""
+                plot.setTitle(f"MIC {i} / A{i - 1}{suffix}", size="10pt", **{"font-family": "Microsoft YaHei"})
             self.restart()
 
         def save_screenshot(self):
@@ -374,6 +459,11 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.trail_start = self.current
             self.render()
 
+        def update_comparison_visibility(self):
+            visible = self.data is not None and self.data.image_only is not None and self.show_image_only.isChecked()
+            for item in (self.xy_image_only, self.image_only_dot, *self.position_image_only, *self.wrench_image_only):
+                item.setVisible(visible)
+
         def fit_trajectory(self):
             if self.data is not None:
                 self.xy.getViewBox().autoRange(padding=.12)
@@ -421,6 +511,29 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.pred_dot.setData([d.prediction[i, 0]] if d.position_valid[i] else [],
                                   [d.prediction[i, 1]] if d.position_valid[i] else [])
             self.true_dot.setData([d.target[i, 0]], [d.target[i, 1]])
+            if d.image_only is not None:
+                baseline = d.image_only
+                count = int(np.searchsorted(baseline.times, self.times[i] + 1e-9, side="right"))
+                first = int(np.searchsorted(baseline.times[:count], self.times[start] - 1e-9, side="left"))
+                values = baseline.prediction[:count].copy()
+                values[~baseline.position_valid[:count], :3] = np.nan
+                self.xy_image_only.setData(values[first:count, 0], values[first:count, 1])
+                if count:
+                    self.image_only_dot.setData([values[-1, 0]], [values[-1, 1]])
+                    for axis, curve in enumerate(self.position_image_only):
+                        curve.setData(baseline.times[:count], values[:, axis])
+                    for axis, curve in enumerate(self.wrench_image_only):
+                        curve.setData(baseline.times[:count], values[:, axis + 3])
+                    mask = baseline.position_valid[:count]
+                    error = np.linalg.norm(values[mask, :2] - d.target[baseline.event_indices[:count][mask], :2], axis=1)
+                    rmse = f"{np.sqrt(np.mean(error**2)):.3f} mm" if len(error) else "无有效位置"
+                    last = " / ".join(f"{v:.2f}" for v in values[-1, :3])
+                    self.comparison_text.setText(f"纯视觉 15 Hz：{count}/{len(baseline.times)} 点 · 最近 x/y/Δz {last} mm\n"
+                        f"输出时刻 {baseline.times[count - 1]:.3f} s · XY RMSE {rmse}（15 Hz 对应 GT）")
+                else:
+                    self.image_only_dot.setData([], [])
+                    for curve in (*self.position_image_only, *self.wrench_image_only):
+                        curve.setData([], [])
             t = self.times[:end]
             for axis, (prediction, truth) in enumerate(self.position_lines):
                 values = d.prediction[:end, axis].copy()
@@ -452,6 +565,8 @@ def create_window(args, QtCore, QtGui, QtWidgets, pg):
             self.status.setText(f"目标 {args.hz:g} Hz · 速度 {self.speed:g}× · UI 刷新 {refresh} · "
                 f"预计算 step 均值 {s['step_mean_ms']:.2f} / P95 {s['step_p95_ms']:.2f} ms · "
                 f"超预算 {s['step_over_budget']}/{len(d.metadata)} · 已全部推理，显示至 {end}/{len(d.metadata)}")
+            if d.image_only is not None:
+                self.status.setText(self.status.text() + f" · 纯视觉 15 Hz / 均值 {d.image_only.latency_ms.mean():.2f} ms")
             self.counter.setText(f"{end}/{len(d.metadata)} · {self.times[i]:.3f} s")
             self.seek.blockSignals(True)
             self.seek.setValue(i)

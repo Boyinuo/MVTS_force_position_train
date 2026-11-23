@@ -19,6 +19,15 @@ TARGET_NAMES = ("x_mm", "y_mm", "delta_z_mm", "Fx", "Fy", "Fz", "Mx", "My", "Mz"
 
 
 @dataclass
+class ImageOnlyReplay:
+    event_indices: np.ndarray
+    times: np.ndarray
+    prediction: np.ndarray
+    position_valid: np.ndarray
+    latency_ms: np.ndarray
+
+
+@dataclass
 class ReplayData:
     metadata: list
     images: dict
@@ -30,6 +39,7 @@ class ReplayData:
     contact_probability: np.ndarray
     latency_ms: np.ndarray
     summary: dict
+    image_only: ImageOnlyReplay | None = None
 
     def times(self, hz):
         # Playback is nominal deployment time; original acquisition times remain in metadata.
@@ -134,6 +144,72 @@ def infer_events(model, stats, device, rows, audio, image_inputs, progress=lambd
             np.asarray(probabilities), np.asarray(latency))
 
 
+def infer_image_only(model, stats, device, rows, image_inputs, hz, progress=lambda *_: None):
+    """Independent 15 Hz stream. No audio or ground-truth inputs, no future frames."""
+    if not getattr(model.config, "image_only", False) or getattr(model, "audio_backbone", None) is not None:
+        raise ValueError("best_image_only.pt must contain an image_only=True model without an audio backbone")
+    count = int(np.floor((len(rows) - 1) / hz * 15 + 1e-9)) + 1
+    times = np.arange(count, dtype=np.float64) / 15
+    indices = np.floor(times * hz + 1e-9).astype(np.int64)
+    mean, std = [np.asarray(stats[k], np.float32) for k in ("target_mean", "target_std")]
+    if mean.shape != (11,) or std.shape != (11,) or not np.isfinite(mean).all() or not np.isfinite(std).all() or (std <= 0).any():
+        raise ValueError("Image-only checkpoint requires 11 finite target means and positive standard deviations")
+    model.eval()
+    model.reset_state()
+    predictions, valid, latency = [], [], []
+    previous = -1
+    with torch.inference_mode():
+        for sample, index in enumerate(indices):
+            row = rows[index]
+            reset = any(r["reset_state"] for r in rows[previous + 1:index + 1])
+            if device.type == "cuda":
+                torch.cuda.synchronize(device)
+            started = time.perf_counter()
+            result = model.step(image=torch.from_numpy(image_inputs[row["image"]]).to(device),
+                frame_id=row["image"], reset=reset)
+            if "physical_prediction" in result:
+                prediction = result["physical_prediction"][0].cpu().numpy()
+                ok = bool(result["position_valid"][0].item())
+            else:
+                prediction = torch.cat([result[k] for k in ("position", "wrench", "slip")], -1)[0].cpu().numpy()
+                prediction = prediction * std + mean
+                ok = True
+            latency.append((time.perf_counter() - started) * 1000)
+            if prediction.shape != (11,) or not np.isfinite(prediction).all():
+                raise FloatingPointError(f"Invalid image-only prediction at sample {sample}")
+            predictions.append(prediction.copy())
+            valid.append(ok)
+            previous = index
+            progress("纯视觉 15 Hz 推理", sample + 1, len(indices))
+    return ImageOnlyReplay(indices, times, np.asarray(predictions), np.asarray(valid), np.asarray(latency))
+
+
+def precompute_image_only(args, device, rows, inputs, target, main_prediction, main_valid, progress):
+    path = default_checkpoint(model_name(args.model)).with_name("best_image_only.pt")
+    if not path.is_file():
+        raise FileNotFoundError(f"Missing 15 Hz image-only checkpoint: {path}. "
+                                "Place best_image_only.pt beside best.pt, or use --no-image-only-comparison.")
+    model, checkpoint, _ = load_checkpoint(path, device)
+    comparison = infer_image_only(model, checkpoint["stats"], device, rows, inputs, args.hz, progress)
+    indices, valid = comparison.event_indices, comparison.position_valid
+    errors = np.linalg.norm(comparison.prediction[valid, :2] - target[indices[valid], :2], axis=1)
+    main_ok = main_valid[indices]
+    main_errors = np.linalg.norm(main_prediction[indices[main_ok], :2] - target[indices[main_ok], :2], axis=1)
+    info = {"enabled": True, "model": model.model_name, "checkpoint": str(path),
+        "epoch": checkpoint.get("epoch"), "hz": 15, "samples": len(indices),
+        "step_mean_ms": float(comparison.latency_ms.mean()),
+        "step_p95_ms": float(np.percentile(comparison.latency_ms, 95)),
+        "position_coverage": float(valid.mean()),
+        "xy_rmse_mm": float(np.sqrt(np.mean(errors**2))) if len(errors) else None,
+        "main_xy_rmse_at_15hz_mm": float(np.sqrt(np.mean(main_errors**2))) if len(main_errors) else None,
+        "wrench_mae": np.abs(comparison.prediction[:, 3:9] - target[indices, 3:9]).mean(axis=0).tolist(),
+        "input_note": "Image-only calls at t=k/15 s with latest available image, independent GRU; "
+            "no audio, ground truth, extra hidden updates or interpolated predictions. "
+            "GT is taken from the latest 150 Hz event at/before each call. "
+            "15 Hz recurrent cadence may differ from the checkpoint training cadence."}
+    return comparison, info
+
+
 def precompute(args, progress=lambda *_: None):
     started = time.perf_counter()
     root = Path(args.data_root).resolve()
@@ -164,6 +240,16 @@ def precompute(args, progress=lambda *_: None):
         progress("读取", index + 1, len(rows))
     pred, valid, slip_ok, probability, latency = infer_events(model, stats, device, rows, audio, inputs, progress)
     target = np.asarray(targets)
+    comparison = None
+    comparison_info = {"enabled": False}
+    if getattr(args, "image_only_comparison", True) and not args.random_weights:
+        # Drop the main model before loading the independent comparison to bound GPU memory.
+        disabled_channels = list(model.config.disabled_mic_channels)
+        del model
+        comparison, comparison_info = precompute_image_only(
+            args, device, rows, inputs, target, pred, valid, progress)
+    else:
+        disabled_channels = list(model.config.disabled_mic_channels)
     errors = np.linalg.norm(pred[valid, :2] - target[valid, :2], axis=1)
     info.update({"data_root": str(root), "sequence": rows[0]["sequence"], "events": len(rows),
         "image_updates": sum(bool(r["image_update"]) for r in rows), "replay_hz": args.hz,
@@ -174,22 +260,36 @@ def precompute(args, progress=lambda *_: None):
         "xy_rmse_mm": float(np.sqrt(np.mean(errors**2))) if len(errors) else None,
         "xy_p95_mm": float(np.percentile(errors, 95)) if len(errors) else None,
         "wrench_mae": np.abs(pred[:, 3:9] - target[:, 3:9]).mean(axis=0).tolist(),
-        "disabled_mic_channels": list(model.config.disabled_mic_channels),
+        "disabled_mic_channels": disabled_channels, "image_only": comparison_info,
         "timing_note": "Ordered batch-one cached-image inference, including input transfer/output CPU copy; "
             "no warmup, startup first call retained. Playback/render FPS is separate from inference latency.",
         "contact_truth_note": "All exported slide events are in contact by acquisition protocol; no Fz relabeling.",
         "spectrogram_note": "Unnormalised training log10 mel power, fixed display range [-10,-2.5]."})
-    return ReplayData(rows, images, np.asarray(raw_mel), target, pred, valid, slip_ok, probability, latency, info)
+    return ReplayData(rows, images, np.asarray(raw_mel), target, pred, valid, slip_ok, probability, latency, info, comparison)
 
 
 def save_results(data, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     (output / "summary.json").write_text(json.dumps(data.summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    extra = {}
+    if data.image_only is not None:
+        baseline = data.image_only
+        extra = {"image_only_event_indices": baseline.event_indices, "image_only_times_s": baseline.times,
+            "image_only_prediction": baseline.prediction, "image_only_position_valid": baseline.position_valid,
+            "image_only_latency_ms": baseline.latency_ms}
+        with (output / "image_only_predictions.csv").open("w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["sample_index", "time_s", "sequence_index", "image", "position_valid", "latency_ms"]
+                + [f"pred_{k}" for k in TARGET_NAMES] + [f"true_{k}" for k in TARGET_NAMES])
+            for j, event in enumerate(baseline.event_indices):
+                writer.writerow([j, baseline.times[j], data.metadata[event]["sequence_index"],
+                    data.metadata[event]["image"], baseline.position_valid[j], baseline.latency_ms[j],
+                    *baseline.prediction[j], *data.target[event]])
     np.savez_compressed(output / "predictions.npz", prediction=data.prediction, target=data.target,
         position_valid=data.position_valid, slip_valid=data.slip_valid,
         contact_probability=data.contact_probability, latency_ms=data.latency_ms,
-        event_pc_ns=np.asarray([r["event_pc_ns"] for r in data.metadata], dtype=np.int64))
+        event_pc_ns=np.asarray([r["event_pc_ns"] for r in data.metadata], dtype=np.int64), **extra)
     with (output / "predictions.csv").open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
         writer.writerow(["sequence_index", "event_pc_ns", "image", "position_valid", "slip_valid",
