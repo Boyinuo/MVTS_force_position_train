@@ -1,0 +1,22 @@
+{
+  "calls": 290,
+  "all_selected_from_test_split": true,
+  "all_cached_windows_of_selected_trajectory_included": true,
+  "slide_orders_contiguous": true,
+  "raw_adc_logmel_recomputed": true,
+  "max_logmel_absolute_difference": 0.0,
+  "six_microphone_channels_retained": true,
+  "image_tensors_exact_match_training_preprocessing": true,
+  "normalized_audio_exact_match": true,
+  "replay_smoke_test": {
+    "calls": 290,
+    "image_updates": 29,
+    "state_resets": 1,
+    "elapsed_seconds": 1.9269080999074504,
+    "note": "Reader callback only; network inference timing is not measured."
+  },
+  "all_targets_and_timestamps_match_source": true,
+  "slide_only": true,
+  "retained_slide_npz_and_images_byte_identical": true,
+  "filter_note": "Removed 10 press events and images; reindexed calls/files and rebased nominal scheduling to zero. Original slide arrays, labels, acquisition timestamps and sequence state flags preserved. Source-validation results inherited from the checksum-verified original package."
+}
