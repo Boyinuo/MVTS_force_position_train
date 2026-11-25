@@ -268,7 +268,7 @@ def test_input_mode_train_resume_evaluate_and_predict(tmp_path, image_only):
             assert result.returncode == 0, result.stdout+result.stderr
 
     output = tmp_path/"run"
-    base = ["train.py", "--prepared-root", cache, "--output", output, "--device", "cpu",
+    base = ["train.py", "--no-demo-tests", "--prepared-root", cache, "--output", output, "--device", "cpu",
             "--threads", 2, "--batch-size", 1, "--max-steps", 1, "--max-eval-steps", 1]
     run(*base, "--image-only" if image_only else "--no-image-only", "--epochs", 1)
     run(*base, "--resume", output/"last.pt", "--epochs", 2)

@@ -106,12 +106,15 @@ def run_epoch(model, loader, device, stats, optimizer=None, max_steps=None,
 
 def save_predictions(path, values, target_names=None):
     target_names = target_names or TARGET_NAMES
-    identifiers, predictions, targets = values
+    identifiers, predictions, targets = values[:3]
+    valid = values[3] if len(values) == 4 else None
     with Path(path).open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["id"] + [f"true_{k}" for k in target_names] + [f"pred_{k}" for k in target_names])
-        for identifier, prediction, target in zip(identifiers, predictions, targets):
-            writer.writerow([identifier] + target.tolist() + prediction.tolist())
+        writer.writerow(["id"] + [f"true_{k}" for k in target_names] + [f"pred_{k}" for k in target_names]
+                        + ([f"label_valid_{k}" for k in target_names] if valid is not None else []))
+        for i, (identifier, prediction, target) in enumerate(zip(identifiers, predictions, targets)):
+            writer.writerow([identifier] + target.tolist() + prediction.tolist()
+                            + (valid[i].tolist() if valid is not None else []))
 
 
 def load_checkpoint(path, device="cpu"):
@@ -121,12 +124,13 @@ def load_checkpoint(path, device="cpu"):
     # Checkpoints created before model selection use the original fusion architecture.
     model = build_model(checkpoint.get("model_name", "model"), checkpoint["model_config"])
     model.load_state_dict(checkpoint["model"])
-    if getattr(model,"model_name",None) == "model_contact_gated" and "stats" in checkpoint:
+    if (getattr(model,"model_name",None) == "model_contact_gated" or
+            getattr(model, "requires_normalization", False)) and "stats" in checkpoint:
         saved_mean = torch.tensor(checkpoint["stats"]["target_mean"],dtype=model.target_mean.dtype)
         saved_std = torch.tensor(checkpoint["stats"]["target_std"],dtype=model.target_std.dtype)
         if (not model.normalization_ready.item() or not torch.equal(model.target_mean,saved_mean)
                 or not torch.equal(model.target_std,saved_std)):
-            raise ValueError("Contact checkpoint physical normalization differs from saved stats")
+            raise ValueError("Model checkpoint physical normalization differs from saved stats")
     return model.to(device), checkpoint, FeatureConfig(**checkpoint["feature_config"])
 
 

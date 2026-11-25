@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 DEFAULT_MODEL = "model_triple_head"
+DUAL_RATE_MODELS = frozenset(("model_triple_head", "model_slip_gated"))
 LEGACY_MODELS = {"model": "model_sensor_nomal",
                  "model_standard_audio": "model_standard_audio_sensor_nomal"}
 

@@ -4,6 +4,7 @@ Example: python train.py --prepared-root .cache/data_final_v4 --epochs 1 --max-g
 """
 import argparse
 import json
+import math
 from pathlib import Path
 import platform
 import time
@@ -16,7 +17,7 @@ from mvts.data import (TactileDataset, discover_records, fit_statistics, limit_s
 from mvts.engine import (choose_device, load_checkpoint, run_epoch, save_checkpoint,
                          save_predictions, seed_everything, validate_positive_arguments)
 from mvts.features import FeatureConfig
-from mvts.architectures import DEFAULT_MODEL, available_models, build_model, get_model_module
+from mvts.architectures import DEFAULT_MODEL, DUAL_RATE_MODELS, available_models, build_model, get_model_module
 
 
 def parse_args():
@@ -26,12 +27,18 @@ def parse_args():
                              help="Subfolder name under data/ (triple-head default: data_final)")
     data_source.add_argument("--data-root", metavar="PATH",
                              help="Read a data directory directly instead of selecting --dataset")
-    parser.add_argument("--output", default="runs/train")
-    parser.add_argument("--prepared-root", help="Triple-head prepared cache from preprocess.py")
+    parser.add_argument("--output",
+                        help="Output directory; model_slip_gated defaults to runs/v6_slip_gated; other models to runs/train")
+    parser.add_argument("--prepared-root", nargs="+", action="extend",
+                        help="One or more disjoint prepared caches; repeat the option or list directories together")
+    parser.add_argument("--trim-stationary-xy-mm", type=float,
+                        help="Exclude each slide from its first window with XY diameter below MM; 0 disables (new-run default); resume inherits")
+    parser.add_argument("--filter-xy-range", action=argparse.BooleanOptionalAction, default=None,
+                        help="Drop ENTIRE slide trajectories with ANY XY truth outside x=[-10,10], y=[-8,10] mm before tail trimming; press per sample; default off; resume inherits")
     parser.add_argument("--image-only", action=argparse.BooleanOptionalAction, default=None,
                         help="Triple-head: use camera images only, bypassing audio. Resume defaults to checkpoint setting")
     parser.add_argument("--disable-mic-channels", type=int, nargs="+", choices=range(1, 7),
-                        help="Triple-head: exclude microphone numbers 1..6; e.g. 5. Resume defaults to checkpoint setting")
+                        help="Dual-rate models: exclude microphone numbers 1..6; e.g. 5. Resume defaults to checkpoint setting")
     parser.add_argument("--model", choices=available_models(),
                         help=f"Model module filename without .py; default: {DEFAULT_MODEL}, or checkpoint model on resume")
     parser.add_argument("--epochs", type=int, default=30, help="Total epochs, including resumed epochs")
@@ -49,8 +56,10 @@ def parse_args():
     parser.add_argument("--position-weight", type=float, default=1.0)
     parser.add_argument("--wrench-weight", type=float, default=1.0)
     parser.add_argument("--slip-weight", type=float, default=1.0)
+    parser.add_argument("--slip-prior-weight", type=float,
+                        help="model_slip_gated: auxiliary coarse-slip loss weight (default 1; resume inherits; 0 disables)")
     parser.add_argument("--contact-weight", type=float, default=1.0, help="Contact-aware BCE loss weight")
-    parser.add_argument("--zero-wrench-weight", type=float, default=1.0, help="No-contact physical zero wrench loss weight")
+    parser.add_argument("--zero-wrench-weight", type=float, default=1.0, help="V5 no-contact physical zero wrench loss weight for both models")
     parser.add_argument("--contact-off-threshold", type=float, help="Contact-aware hysteresis release threshold (default .4)")
     parser.add_argument("--contact-on-threshold", type=float, help="Contact-aware hysteresis onset threshold (default .6)")
     parser.add_argument("--max-groups", type=int, help="Smoke: at most this many locations per split")
@@ -59,8 +68,21 @@ def parse_args():
     parser.add_argument("--strict-timing", action="store_true")
     parser.add_argument("--skip-bad-records", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
+    parser.add_argument("--demo-tests", action=argparse.BooleanOptionalAction, default=True,
+                        help="After training, evaluate best.pt on demo_circle/line/triangle and save PNG/SVG (default on)")
+    parser.add_argument("--demo-test-root", default=str(Path(__file__).resolve().parent / "deployment/test_data"),
+                        help="Directory containing demo_circle, demo_line and demo_triangle")
+    parser.add_argument("--demo-trim-stationary-xy-mm", type=float, default=0.,
+                        help="Independent external-test tail trimming; default 0 keeps complete shapes")
+    parser.add_argument("--demo-filter-xy-range", action=argparse.BooleanOptionalAction, default=False,
+                        help="Independent external-test XY filtering; default off to retain circle trajectories")
     parser.add_argument("--resume", help="Path to last.pt; retain the original training/split options")
     args = parser.parse_args()
+    if args.slip_prior_weight is not None and (not math.isfinite(args.slip_prior_weight) or args.slip_prior_weight < 0):
+        parser.error("--slip-prior-weight must be finite and nonnegative")
+    if args.trim_stationary_xy_mm is not None and (
+            not math.isfinite(args.trim_stationary_xy_mm) or args.trim_stationary_xy_mm < 0):
+        parser.error("--trim-stationary-xy-mm must be finite and nonnegative (0 disables trimming)")
     if args.disable_mic_channels is not None:
         if args.image_only:
             parser.error("--image-only cannot be combined with --disable-mic-channels")
@@ -68,12 +90,13 @@ def parse_args():
             parser.error("--disable-mic-channels must be distinct and leave at least one microphone enabled")
     if args.data_root is None:
         if args.dataset is None:
-            args.dataset = "data_final" if args.model in (None, "model_triple_head", "model_contact_gated") else "data_sensor_normal"
+            args.dataset = "data_final" if args.model in (None, *DUAL_RATE_MODELS, "model_contact_gated") else "data_sensor_normal"
         if (not args.dataset or args.dataset in (".", "..")
                 or any(char in args.dataset for char in ("/", "\\", ":"))):
             parser.error("--dataset must be a single subfolder name under data/")
         args.data_root = str(Path("data") / args.dataset)
-    if not args.prepared_root and not Path(args.data_root).is_dir():
+    if (not args.prepared_root and not args.resume and args.model != "model_slip_gated"
+            and not Path(args.data_root).is_dir()):
         parser.error(f"Data directory does not exist: {args.data_root}")
     return args
 
@@ -81,28 +104,32 @@ def parse_args():
 def main():
     args = parse_args()
     validate_positive_arguments(args)
+    selected_model = args.model or (torch.load(args.resume, map_location="cpu", weights_only=True).get(
+        "model_name", "model") if args.resume else DEFAULT_MODEL)
+    if args.output is None:
+        args.output = "runs/train"
+        if selected_model == "model_slip_gated":
+            args.output = str(Path(args.resume).parent) if args.resume else "runs/v6_slip_gated"
+    if args.slip_prior_weight is not None and selected_model != "model_slip_gated":
+        raise ValueError("--slip-prior-weight is supported only by model_slip_gated")
     if args.image_only is not None:
-        selected_model = args.model or (torch.load(args.resume, map_location="cpu", weights_only=True).get(
-            "model_name", "model") if args.resume else DEFAULT_MODEL)
         if selected_model != "model_triple_head":
             raise ValueError("--image-only/--no-image-only is supported only by model_triple_head")
-    if args.model == "model_contact_gated":
+    from deployment.demo_evaluation import SUPPORTED_MODELS, after_training, preflight
+    if args.demo_tests and not args.audit_only and selected_model in SUPPORTED_MODELS:
+        preflight(args.demo_test_root, args.demo_trim_stationary_xy_mm, args.demo_filter_xy_range)
+    if selected_model == "model_contact_gated":
         from mvts.contact_engine import train_contact_prepared
-        return train_contact_prepared(args)
-    if args.model == "model_triple_head" or (args.model is None and not args.resume):
+        args.model = selected_model
+        result = train_contact_prepared(args)
+        after_training(args)
+        return result
+    if selected_model in DUAL_RATE_MODELS:
         from mvts.dual_rate_engine import train_prepared
-        args.model = "model_triple_head"
-        return train_prepared(args)
-    if args.resume and args.model is None:
-        saved = torch.load(args.resume, map_location="cpu", weights_only=True)
-        if saved.get("model_name") == "model_contact_gated":
-            from mvts.contact_engine import train_contact_prepared
-            args.model = "model_contact_gated"
-            return train_contact_prepared(args)
-        if saved.get("model_name") == "model_triple_head":
-            from mvts.dual_rate_engine import train_prepared
-            args.model = "model_triple_head"
-            return train_prepared(args)
+        args.model = selected_model
+        result = train_prepared(args)
+        after_training(args)
+        return result
     if args.disable_mic_channels is not None:
         raise ValueError("--disable-mic-channels is supported only by model_triple_head")
     start = time.perf_counter()
@@ -260,6 +287,7 @@ def main():
         (("Fx", "N"), ("Fy", "N"), ("Fz", "N"),
          ("Mx", "N*m"), ("My", "N*m"), ("Mz", "N*m"))), flush=True)
     print(f"saved to {output.resolve()}", flush=True)
+    after_training(args)
 
 
 if __name__ == "__main__":

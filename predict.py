@@ -1,12 +1,31 @@
 """Predict from an image and optional audio (image-only checkpoints need no NPZ)."""
 import argparse
+from pathlib import Path
 
 import numpy as np
 import torch
 
-from mvts.data import TARGET_NAMES, extract_sample_audio, write_json
+from mvts.data import TARGET_NAMES, extract_sample_audio, read_json, write_json
 from mvts.engine import choose_device, load_checkpoint
 from mvts.features import LogMel, load_image
+from mvts.architectures import DUAL_RATE_MODELS
+from mvts.dual_rate_data import event_timing_seconds
+
+
+def prepared_image_time(window):
+    """Recover the same image-age anchor as training from an adjacent manifest.
+
+    Standalone windows without their manifest fall back to a fresh image anchor;
+    normal prepared press/slide cache paths preserve the recorded host timestamp.
+    """
+    window = Path(window).resolve()
+    for root in (window.parent, window.parent.parent):
+        manifest = root / "manifest.json"
+        if manifest.is_file():
+            for record in read_json(manifest).get("records", []):
+                if (root / record["file"]).resolve() == window:
+                    return record.get("image_pc_ns")
+    return None
 
 
 def main():
@@ -29,7 +48,9 @@ def main():
     device = choose_device(args.device)
     model, checkpoint, config = load_checkpoint(args.checkpoint, device)
     contact_aware = model.model_name == "model_contact_gated"
-    triple = model.model_name in ("model_triple_head", "model_contact_gated")
+    triple = model.model_name in DUAL_RATE_MODELS or contact_aware
+    slip_guided = getattr(model, "requires_timing", False)
+    timing, gate_diagnostics = {}, []
     image_only = model.model_name == "model_triple_head" and model.config.image_only
     if not (args.npz or args.prepared_window) and not image_only:
         parser.error("--npz or --prepared-window is required for checkpoints using audio")
@@ -44,6 +65,12 @@ def main():
                 if not triple or args.force_index is not None:
                     raise ValueError("Prepared-window requires triple-head; predicts the complete ordered window")
                 prepared_audio = torch.from_numpy(data["audio"].copy())
+                if slip_guided:
+                    timing = event_timing_seconds(
+                        data["event_pc_ns"] if "event_pc_ns" in data else None,
+                        data["previous_pc_ns"] if "previous_pc_ns" in data else None,
+                        prepared_image_time(args.prepared_window), len(prepared_audio),
+                        independent="previous_pc_ns" not in data and len(prepared_audio) == 1)
                 adc = None
             else:
                 force_index = args.force_index
@@ -71,6 +98,8 @@ def main():
             if args.state_in:
                 stream = torch.load(args.state_in, map_location=device, weights_only=True)
                 hidden = stream["hidden"]
+                if slip_guided and stream.get("model_name") != model.model_name:
+                    raise ValueError("Slip-guided stream state must come from model_slip_gated")
                 if contact_aware:
                     if stream.get("model_name") != model.model_name or "contact_state" not in stream:
                         raise ValueError("Contact-aware stream state must include hidden and predicted contact state")
@@ -79,13 +108,23 @@ def main():
                 if args.state_in:
                     raise ValueError("Use either --state-in or --previous-contact for the predicted prior state")
                 previous_state = torch.tensor([args.previous_contact],device=device)
-            result = model.forward_sequence(image, None if audio is None else audio.unsqueeze(0).to(device), hidden)
+            timing_tensors = {k: torch.as_tensor(v, device=device)[None] for k, v in timing.items()}
+            result = model.forward_sequence(image, None if audio is None else audio.unsqueeze(0).to(device), hidden,
+                                            **timing_tensors)
             pred = torch.cat([result[k] for k in ("position", "wrench", "slip")], dim=-1)[0].cpu()
             if contact_aware:
                 gated = model.gate_outputs(result,previous_state)
                 pred = gated["physical_prediction"][0].cpu()
+            if slip_guided:
+                for i in range(len(pred)):
+                    gate_diagnostics.append({
+                        "visual_weight": float(result["visual_weight"][0, i].cpu()),
+                        "audio_weight": float(result["audio_weight"][0, i].cpu()),
+                        "slip_prior_mm": result["slip_prior_mm"][0, i].cpu().tolist(),
+                        "prior_speed_mm_s": float(result["prior_speed_mm_s"][0, i].cpu()),
+                        "delta_t_s": float(result["delta_t"][0, i].cpu()),
+                        "image_age_s": float(result["image_age"][0, i].cpu())})
             if args.state_out:
-                from pathlib import Path
                 Path(args.state_out).parent.mkdir(parents=True, exist_ok=True)
                 stream = {"hidden": result["hidden"].cpu(), "model_name": model.model_name}
                 if contact_aware:
@@ -128,6 +167,12 @@ def main():
         else:
             result.update(states[0])
         result["invalid_outputs"] = "Position/slip use numeric zero placeholders when valid=false; these are not physical location/slip estimates"
+    if slip_guided:
+        if sequence:
+            for item, diagnostics in zip(result["predictions"], gate_diagnostics):
+                item.update(diagnostics)
+        else:
+            result.update(gate_diagnostics[0])
     write_json(args.output, result)
     print(result)
 

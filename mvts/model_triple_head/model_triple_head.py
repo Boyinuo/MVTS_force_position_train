@@ -133,6 +133,8 @@ Each microphone is encoded independently by the SAME ResNet-18, then averaged.
 Q = last audio token; K,V = concatenate(audio, latest available visual tokens).
 The 128-D fused token updates GRU(128,256); three heads predict 3/6/2 values.
 Targets (including wrench) are never fed back into the estimator.
+The training pipeline accepts v4 and v5 caches. V5 validity/contact labels mask
+regression losses and supervise unloaded zero wrench; they are not model inputs.
 Use forward_sequence for ordered training and step for cached streaming inference.
 With image_only=True, omit audio: only 16 visual tokens enter attention, using
 their mean to form Q, and the acoustic encoder/projection are not constructed.

@@ -8,6 +8,7 @@ from collections import Counter
 import hashlib
 import json
 from pathlib import Path
+import warnings
 
 import numpy as np
 import torch
@@ -116,8 +117,15 @@ def fit_contact_statistics(records):
         event_count += len(y)
         if number % 2000 == 0:
             print(f"Contact normalization: {number}/{len(records)} windows", flush=True)
-    if (count == 0).any() or (classes == 0).any():
-        raise ValueError("Training split needs valid regression labels AND both contact/background classes")
+    if (count == 0).any() or not classes.any():
+        raise ValueError("Training split needs valid regression labels and valid contact supervision")
+    present = class_weight_counts > 0
+    weights = np.zeros(2, dtype=np.float64)
+    weights[present] = class_weight_counts.sum() / (present.sum() * class_weight_counts[present])
+    if not present.all():
+        warnings.warn("Training data has only one contact class; contact/background discrimination cannot be "
+                      "learned from this cache alone. Combine press backgrounds for contact classification.",
+                      UserWarning, stacklevel=2)
     mean, am = total/count, audio_total/audio_count
     std = np.sqrt(np.maximum(square/count-mean*mean, 1e-8))
     std[9:] = np.maximum(std[9:], .01)
@@ -127,7 +135,8 @@ def fit_contact_statistics(records):
             "target_fit_counts": count.tolist(), "fit_sample_count": event_count,
             "contact_class_counts": classes.tolist(),
             "contact_class_weight_counts": class_weight_counts.tolist(),
-            "contact_class_weights": (class_weight_counts.sum()/(2*class_weight_counts)).tolist(),
+            "contact_class_weights": weights.tolist(),
+            "contact_classes_present": np.flatnonzero(present).tolist(),
             "target_names": TARGET_NAMES}
 
 

@@ -1,3 +1,109 @@
+# 滑移轨迹真值查看（2026-11-24 更新）
+
+现有部署界面增加 `--ground-truth-only` 模式，可直接打开 v6 缓存，不需要模型权重、不执行推理、默认不导出文件。界面的“滑移轨迹 ID”下拉框支持检索和切换全部600条轨迹，使用完整来源名区分重复短 ID。
+
+```powershell
+.venv\Scripts\python.exe deployment/deployment_viewer.py --ground-truth-only --data-root .cache/data_final_v6_slide_contact
+
+# 按训练时相同的0.03mm规则截取，切换轨迹时继续应用阈值
+.venv\Scripts\python.exe deployment/deployment_viewer.py --ground-truth-only --data-root .cache/data_final_v6_slide_contact --trim-stationary-xy-mm 0.03
+
+# 固定区域筛选：整条轨迹任一点越界就剔除整条，可与末端截取叠加
+.venv\Scripts\python.exe deployment/deployment_viewer.py --ground-truth-only --data-root .cache/data_final_v6_slide_contact --filter-xy-range --trim-stationary-xy-mm 0.029
+```
+
+显示图像、XY/位置时间曲线、六维力真值和频谱，并支持回放、拖动与缩放。`--trim-stationary-xy-mm` 与训练共用实现：首次窗口内 XY 最大两点距离严格小于阈值时，剔除该窗口及之后全部窗口；省略或设为 `0` 关闭。`--filter-xy-range` 在末端截取前检查完整轨迹，只要任意 XY 真值超出固定的 x∈[-10,10]、y∈[-8,10] mm（边界包含），就去除整条轨迹，ID 列表仅显示通过筛选的轨迹。两个开关只影响加载结果，不改写缓存；区域开关默认关闭。也支持同格式的折线缓存。完整参数和指定轨迹的示例见 [deployment/README.md](deployment/README.md)。
+
+---
+
+# v6 分目录缓存、多目录训练与末端截取（2026-11-23 更新）
+
+`data/data_final` 下的三个目录已分别预处理为以下缓存。**v6 是本次数据集的命名，内部仍为 v5 接触监督格式**（`version=5`、`schema=contact_gated_v1`），`model_triple_head` 和 `model_contact_gated` 均可直接使用。缓存保存完整有效窗口，不预先按运动阈值截断。
+
+| 原始目录 | 缓存目录 | 窗口数 | 子事件数 |
+| --- | --- | ---: | ---: |
+| `data/data_final/data_final_press` | `.cache/data_final_v6_press_contact` | 13,159 | 13,159 |
+| `data/data_final/data_final_slide` | `.cache/data_final_v6_slide_contact` | 10,059 | 100,590 |
+| `data/data_final/data_final_polyline` | `.cache/data_final_v6_polyline_contact` | 9,816 | 98,160 |
+
+按压保留六套来源，其中背景4,783个、接触8,376个。滑移仅包含两批3mm直线数据各300条轨迹；折线包含597条轨迹。**2026-11-24 已从 v6 滑移缓存剔除 `slide_fullframes_formal_4mm_20261118_233432_824` 的500条轨迹、12,599个窗口和125,990个子事件及其文件。** 本次来源剔除仅作用于 v6 滑移缓存。无效/裁剪区间、因果音频历史不足的区间及无法提供十个不同力采样的短区间按原规则排除，清单见各缓存的 `report.json`；全量验收结果见 `verification.json`。
+
+已有缓存可直接训练。仅需从原始数据重新生成时执行以下命令，`--output` 必须是尚不存在的目录，不要对现有缓存直接重跑：
+
+```powershell
+uv run preprocess.py --contact-aware --data-root data/data_final/data_final_press --output .cache/data_final_v6_press_contact
+uv run preprocess.py --contact-aware --data-root data/data_final/data_final_slide --slide-source sensor3_probe3mm_fast_slide_fullframes_training_20261121 --slide-source sensor3_probe3mm_fast_straight_300trials_20261122 --output .cache/data_final_v6_slide_contact
+uv run preprocess.py --contact-aware --data-root data/data_final/data_final_polyline --output .cache/data_final_v6_polyline_contact
+
+# 单份缓存独立验收，不需要 v4 baseline
+uv run verify_contact_cache.py --prepared-root .cache/data_final_v6_slide_contact
+```
+
+`--prepared-root` 支持一次传入多个目录，也支持重复指定该参数。加载时合并数据，按完整按压位置/滑移轨迹分组划分，然后只用训练划分拟合统一归一化；发现重复目录或重叠样本 ID 会报错。两个模型可在相同目录组合上分别训练：
+
+```powershell
+$datasets = @(
+  ".cache/data_final_v6_press_contact",
+  ".cache/data_final_v6_slide_contact",
+  ".cache/data_final_v6_polyline_contact"
+)
+
+# 默认不截取，使用三份缓存的完整有效窗口
+uv run train.py --model model_triple_head --prepared-root $datasets --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_v6
+uv run train.py --model model_contact_gated --prepared-root $datasets --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/contact_gated_v6
+
+# 需要末端截取时增加该参数，并使用独立的新训练目录
+uv run train.py --model model_triple_head --prepared-root $datasets --trim-stationary-xy-mm 0.03 --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_v6_trim_0p03mm
+uv run train.py --model model_contact_gated --prepared-root $datasets --trim-stationary-xy-mm 0.03 --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/contact_gated_v6_trim_0p03mm
+```
+
+`--trim-stationary-xy-mm MM` 的规则是：对每条滑移/折线轨迹，计算每个图像窗口内10个子事件位置真值的**最大两点 XY 欧氏距离**，忽略 Z；第一次严格小于阈值时，剔除该窗口及这条轨迹后续的全部窗口，后续抖动增大也不恢复。等于阈值保留，全部按压样本保留。新训练默认关闭，也可显式设置 `--trim-stationary-xy-mm 0`。
+
+训练支持同名 `--filter-xy-range` 开关，不需要配置数值，固定范围为 **x∈[-10,10] mm、y∈[-8,10] mm**，包含边界。滑移和折线只要完整轨迹中任意一点越界，就去除整条轨迹；按压则逐独立样本筛选，越界就去除该样本，包括无接触背景。先按完整分组划分，再执行区域筛选、末端截取，最后仅用保留的训练数据拟合归一化。区域判断先于末端截取，因此原轨迹末端的越界点也会触发整条剔除。缓存不变，`data_report.json` 的 `xy_range_selection` 记录各划分的剔除统计。
+
+```powershell
+uv run train.py --model model_triple_head --prepared-root $datasets --filter-xy-range --trim-stationary-xy-mm 0.029 --device cuda --output runs/v6_triple_head_xy_range
+uv run train.py --model model_contact_gated --prepared-root $datasets --filter-xy-range --trim-stationary-xy-mm 0.029 --device cuda --output runs/v6_contact_gated_xy_range
+```
+
+当前区域筛选保留11,719个按压样本、206条直线滑移轨迹（3,202个窗口）和154条折线轨迹（2,457个窗口）。默认关闭，可省略或显式使用 `--no-filter-xy-range`；续训和评估会自动继承 checkpoint 中保存的开关，改变开关应新开训练目录。
+
+**截取不需要额外预处理或派生缓存。** 它直接使用现有 manifest 中的位置真值，只在内存中选择窗口，不重算或复制图像、Log-Mel，不改写 `.cache`。先按完整分组划分，再分别截取，最后拟合保留训练数据的归一化，保证阈值变化不会让存活轨迹跨训练/验证/测试划分移动。运行输出中的 `data_report.json` 记录各划分的保留/删除数量及每条轨迹的截断序号。
+
+0.03mm 阈值下，当前滑移缓存保留4,093个窗口、全部600条轨迹，折线保留5,262个窗口，按压仍为13,159个窗口。该参数按“首次低于阈值”判断，不会自动区分起始静止和末端静止；如果某条轨迹的首个有效窗口就低于阈值，会整条剔除。单独滑移/折线数据只有接触正样本，接触模型允许加载并提示单类别限制；需要学习接触/无接触分类时应与按压背景联合训练。
+
+续训和独立评估自动继承 checkpoint 中保存的缓存目录组合及截取阈值；改变阈值或实际训练样本应开始新训练。续训的 batch size 等原有训练选项仍须与 checkpoint 一致；数据迁移后，评估可显式传入多个新的缓存路径。
+
+```powershell
+# 接着上面的三头截取训练继续到40轮；不必重传缓存列表或截取阈值
+uv run train.py --resume runs/triple_head_v6_trim_0p03mm/last.pt --device cuda --epochs 40 --batch-size 8 --workers 10 --output runs/triple_head_v6_trim_0p03mm
+
+uv run evaluate.py --checkpoint runs/triple_head_v6_trim_0p03mm/best.pt --device cuda --output runs/triple_head_v6_trim_0p03mm/evaluation
+uv run evaluate.py --checkpoint runs/contact_gated_v6_trim_0p03mm/best.pt --device cuda --output runs/contact_gated_v6_trim_0p03mm/evaluation
+```
+
+---
+
+# 两个模型共用 v5 数据集（2026-11-23 更新）
+
+`model_triple_head` 和 `model_contact_gated` 现在都支持 `.cache/data_final_v5_faster_contact`，无需重新预处理。三头模型也继续支持 v4 缓存。两者使用相同的分组划分规则、训练集音频统计和有效回归标签统计，背景实测值不会混入回归归一化。
+
+三头模型在 v5 上使用 `target_valid` 掩码计算位置、六维力、滑移的 Smooth L1；无接触背景只通过物理零六维力损失监督力头，权重为 `--zero-wrench-weight`（默认1）。接触标签只用于训练监督和评估，不作为网络输入。三头模型仍输出三个回归头；四头模型继续预测接触并进行滞回门控。
+
+```powershell
+# 在同一份 v5 缓存上分别开始新训练，使用独立输出目录
+uv run train.py --model model_triple_head --prepared-root .cache/data_final_v5_faster_contact --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_v5
+uv run train.py --model model_contact_gated --prepared-root .cache/data_final_v5_faster_contact --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/contact_gated_v5
+
+# 评估默认使用 checkpoint 中记录的训练缓存，也可用 --prepared-root 指定迁移后的路径
+uv run evaluate.py --checkpoint runs/triple_head_v5/best.pt --device cuda --output runs/triple_head_v5/evaluation
+uv run evaluate.py --checkpoint runs/contact_gated_v5/best.pt --device cuda --output runs/contact_gated_v5/evaluation
+```
+
+三头模型的 `raw_mae/raw_rmse` 只统计有效实测标签；`mae/rmse` 还将无接触六维力与物理零比较，背景位置/滑移仍排除。另报 `no_contact_wrench_mae`、`target_valid_counts`，v5 预测 CSV 增加 `label_valid_*` 列。两个模型均校验 checkpoint 中的监督摘要，数据或掩码变化需要新训练；从 v4 切换到完整 v5 时应使用新的输出目录，不沿用 v4 的 `--resume`。
+
+---
+
 # 接触感知四预测头（2026-11-21 新增）
 
 新增模型 `mvts/model_contact_gated/model_contact_gated.py`，通过 `--model model_contact_gated` 选择；原三头模型及其训练命令继续保留。共享视觉/声学编码、联合注意力、GRU(128,256) 后，四个 MLP 分别输出位置3维、六维力6维、滑移增量2维和接触 logit 1维。没有额外的不确定性头、动力学专家或真值接触输入。
@@ -76,6 +182,19 @@ uv run preprocess.py --data-root data/data_final --slide-source sensor3_probe3mm
 # 使用该缓存开始独立训练，训练集归一化会重新拟合
 uv run train.py --prepared-root .cache/data_final_v4_faster --device cuda --epochs 30 --batch-size 8 --workers 10 --output runs/triple_head_faster
 ```
+
+2026-11-23 增加滑移末尾截断缓存：对每条轨迹，计算每个图像区间内10个位置真值的最大两点 XY 欧氏距离（忽略 z）；**第一次小于0.05mm时，从该区间开始删除全部后续区间**，后续偶尔较大的抖动也不重新保留。等于0.05mm不触发截断。全部按压样本保留，包括 v5 的无接触背景；原始缓存保留，派生缓存独立复制所需图像和 NPZ，保留原有音频、回归标签、时间戳及轨迹序号。
+
+两个截断缓存各保留300条轨迹、1524个连续滑移区间（15240个子事件），各删除3520个区间（35200个子事件）。`.cache/data_final_v4_faster_trim_xy_0p05mm` 保留8376个按压样本，总计9900个窗口、23616个子事件；`.cache/data_final_v5_faster_contact_trim_xy_0p05mm` 保留13159个按压样本，总计14683个窗口、28399个子事件。各目录的 `filtered_out.csv` 记录删除清单和截断序号，`filter_verification.json` 记录连续性及文件校验结果。
+
+```powershell
+# 需要重新生成时，output 必须是尚不存在的新目录
+uv run filter_stationary_cache.py --source .cache/data_final_v4_faster --output .cache/data_final_v4_faster_trim_xy_0p05mm --threshold-mm 0.05
+uv run filter_stationary_cache.py --source .cache/data_final_v5_faster_contact --output .cache/data_final_v5_faster_contact_trim_xy_0p05mm --threshold-mm 0.05 --baseline-cache .cache/data_final_v4_faster_trim_xy_0p05mm
+uv run verify_contact_cache.py --prepared-root .cache/data_final_v5_faster_contact_trim_xy_0p05mm --baseline .cache/data_final_v4_faster_trim_xy_0p05mm --compare-audio
+```
+
+训练时将 `--prepared-root` 改为对应的截断缓存，并使用新的训练输出目录，归一化只在新的训练划分上重新拟合。
 
 屏蔽第五路麦克风无需重建缓存：训练命令增加 `--disable-mic-channels 5`（编号从1开始），并使用新的输出目录，例如 `--output runs/triple_head_no_mic5`。模型在声学编码前排除该路，对剩余5路特征求平均，缓存仍保持6路。多路可写 `--disable-mic-channels 2 5`，至少保留一路。选择保存在模型配置和checkpoint中，评估、推理、测速及恢复训练会自动沿用；恢复时显式指定不同通道会报错。不能对原六路实验的 `last.pt` 直接添加屏蔽参数继续训练。
 

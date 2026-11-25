@@ -171,3 +171,12 @@ def test_contact_checkpoint_preserves_normalization_and_thresholds(tmp_path):
     torch.save(checkpoint,path)
     with pytest.raises(ValueError,match="normalization differs"):
         load_checkpoint(path)
+
+
+def test_contact_cache_standalone_verification(contact_cache):
+    from verify_contact_cache import verify
+    result = verify(contact_cache)
+    assert result["passed"] and result["windows"] == result["events"] == 6
+    assert result["contact_counts"] == {"no_contact": 3, "contact": 3}
+    assert result["images_verified"] == 1
+    assert "baseline_windows_preserved" not in result

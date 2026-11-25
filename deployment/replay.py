@@ -11,6 +11,7 @@ import torch
 
 from mvts.architectures import build_model, get_model_module
 from mvts.engine import choose_device, load_checkpoint
+from mvts.prepared_selection import filter_xy_range, trim_prepared_records
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,13 +34,14 @@ class ReplayData:
     images: dict
     mel: np.ndarray
     target: np.ndarray
-    prediction: np.ndarray
+    prediction: np.ndarray | None
     position_valid: np.ndarray
     slip_valid: np.ndarray
     contact_probability: np.ndarray
     latency_ms: np.ndarray
     summary: dict
     image_only: ImageOnlyReplay | None = None
+    target_valid: np.ndarray | None = None
 
     def times(self, hz):
         # Playback is nominal deployment time; original acquisition times remain in metadata.
@@ -50,22 +52,150 @@ def model_name(value):
     return Path(value).stem
 
 
+def slide_items(root):
+    root = Path(root)
+    if (root / "events.jsonl").is_file():
+        rows = [json.loads(line) for line in (root / "events.jsonl").read_text(
+            encoding="utf-8-sig").splitlines() if line.strip()]
+        return rows, False
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8-sig"))
+    if manifest.get("version") not in (4, 5) or "records" not in manifest:
+        raise ValueError("Expected a prepared v4/v5 cache or an exported deployment package with events.jsonl")
+    return manifest["records"], True
+
+
+def list_sequences(root, filter_fixed_range=False):
+    rows, cached = slide_items(root)
+    if filter_fixed_range:
+        records = []
+        for index, row in enumerate(rows):
+            if row["kind"] != "slide":
+                continue
+            if cached:
+                records.append({**row, "id": row.get("id", f"{row['sequence']}/{row['order']}")})
+            else:
+                with np.load(Path(root) / row["data"], allow_pickle=False) as z:
+                    target = np.atleast_2d(z["target"])
+                records.append({"id": f"{row['sequence']}/{index}", "kind": "slide",
+                                "sequence": row["sequence"], "order": index,
+                                "events": len(target), "target": target.tolist()})
+        rows, _ = filter_xy_range(records, True)
+    return list(dict.fromkeys(row["sequence"] for row in rows if row["kind"] == "slide"))
+
+
 def select_sequence(root, sequence=None):
-    rows = [json.loads(line) for line in (Path(root) / "events.jsonl").read_text(
-        encoding="utf-8-sig").splitlines() if line.strip()]
+    rows, cached = slide_items(root)
     slides = list(dict.fromkeys(row["sequence"] for row in rows if row["kind"] == "slide"))
     if not slides:
         raise ValueError("Dataset contains no slide sequence")
     sequence = sequence or slides[0]
+    if sequence not in slides:
+        matches = [name for name in slides if name.rsplit("/", 1)[-1] == sequence]
+        if len(matches) == 1:
+            sequence = matches[0]
+        elif len(matches) > 1:
+            raise ValueError(f"Ambiguous trajectory ID {sequence!r}; specify the full source/ID: {matches}")
     selected = [row for row in rows if row["kind"] == "slide" and row["sequence"] == sequence]
     if not selected:
-        raise ValueError(f"Unknown slide sequence {sequence!r}; available: {slides}")
+        raise ValueError(f"Unknown slide sequence {sequence!r}; available (first 10): {slides[:10]}")
+    if cached:
+        windows = sorted(selected, key=lambda r: r["order"])
+        if len({r["order"] for r in windows}) != len(windows):
+            raise ValueError("Duplicate window order in slide trajectory")
+        selected, previous = [], None
+        for record in windows:
+            for event in range(record["events"]):
+                selected.append({"kind": "slide", "sequence": sequence, "sequence_index": len(selected),
+                    "source_window_order": record["order"], "event_index": event,
+                    "data": record["file"], "image": record["image"], "image_update": event == 0,
+                    "reset_state": event == 0 and (previous is None or record["order"] != previous + 1)})
+            previous = record["order"]
     if not selected[0]["reset_state"] or not selected[0]["image_update"]:
         raise ValueError("The trajectory must start with a state reset and a new image")
     indices = [row["sequence_index"] for row in selected]
     if indices != list(range(len(selected))):
         raise ValueError("Slide events must be complete and ordered from sequence_index=0")
     return selected
+
+
+def ground_truth_windows(rows, targets):
+    starts = [i for i, row in enumerate(rows) if i == 0 or row["image_update"]]
+    windows = []
+    for index, (start, end) in enumerate(zip(starts, starts[1:] + [len(rows)])):
+        row = rows[start]
+        windows.append({"id": f"{row['sequence']}/window_{index}", "kind": "slide",
+                        "sequence": row["sequence"], "order": row.get("source_window_order", index),
+                        "events": end - start, "target": targets[start:end].tolist(),
+                        "file": row["data"], "image": row["image"]})
+    return windows
+
+
+def trim_ground_truth(rows, targets, threshold_mm, *, mode="ground-truth"):
+    """Group complete image windows and use the exact training selection rule."""
+    windows = ground_truth_windows(rows, targets)
+    _, report = trim_prepared_records(windows, threshold_mm)
+    if not report["retained_events"]:
+        raise ValueError(f"No {mode} windows remain for {rows[0]['sequence']!r}: its first window is below "
+                         f"{threshold_mm:g} mm. Reduce --trim-stationary-xy-mm or set it to 0.")
+    return report
+
+
+def load_ground_truth(args, progress=lambda *_: None):
+    """Read cached physical labels/images/mel directly; never instantiate a model."""
+    started = time.perf_counter()
+    root = Path(args.data_root).resolve()
+    use_range = getattr(args, "filter_xy_range", False)
+    sequence = args.sequence
+    if use_range and sequence is None:
+        available = list_sequences(root, True)
+        if not available:
+            raise ValueError("No slide trajectories remain inside the fixed XY range; disable --filter-xy-range")
+        sequence = available[0]
+    rows = select_sequence(root, sequence)
+    images, audio, targets, validity = {}, [], [], []
+    last_file, arrays = None, None
+    for index, row in enumerate(rows):
+        if row["data"] != last_file:
+            with np.load(root / row["data"], allow_pickle=False) as z:
+                arrays = {key: z[key].copy() for key in ("audio", "target", "event_pc_ns", "target_valid") if key in z}
+            last_file = row["data"]
+        mel, target = arrays["audio"], arrays["target"]
+        valid = arrays.get("target_valid", np.ones(target.shape, dtype=bool))
+        event = row.get("event_index")
+        if event is not None:
+            mel, target, valid = mel[event], target[event], valid[event]
+            row["event_pc_ns"] = int(arrays["event_pc_ns"][event])
+        if (mel.shape != (6, 64, 28) or target.shape != (11,) or valid.shape != (11,)
+                or not np.isfinite(mel).all() or not np.isfinite(target).all()):
+            raise ValueError(f"Invalid ground-truth event: {row['data']}")
+        audio.append(mel.astype(np.float32))
+        targets.append(target)
+        validity.append(valid.astype(bool))
+        if row["image"] not in images:
+            with Image.open(root / row["image"]) as im:
+                images[row["image"]] = np.asarray(im.convert("RGB").resize(
+                    (224, 224), Image.Resampling.BILINEAR)).copy()
+        progress("读取真值", index + 1, len(rows))
+    targets = np.asarray(targets)
+    # Check the COMPLETE cached trajectory, including any tail removed below.
+    _, range_selection = filter_xy_range(ground_truth_windows(rows, targets), use_range)
+    if not range_selection["retained_windows"]:
+        raise ValueError(f"Entire trajectory {rows[0]['sequence']!r} excluded: XY truth outside "
+                         "x=[-10,10], y=[-8,10] mm. Disable --filter-xy-range to view it.")
+    selection = trim_ground_truth(rows, targets, getattr(args, "trim_stationary_xy_mm", 0.))
+    n = selection["retained_events"]
+    rows = rows[:n]
+    retained_images = {row["image"] for row in rows}
+    images = {path: pixels for path, pixels in images.items() if path in retained_images}
+    info = {"ground_truth_only": True, "model": None, "checkpoint": None, "random_weights": False,
+            "data_root": str(root), "sequence": rows[0]["sequence"], "events": n,
+            "image_updates": sum(bool(r["image_update"]) for r in rows), "replay_hz": args.hz,
+            "precompute_seconds": time.perf_counter() - started, "device": "无需推理",
+            "disabled_mic_channels": [], "image_only": {"enabled": False}, "trim_selection": selection,
+            "xy_range_selection": range_selection}
+    return ReplayData(rows, images, np.asarray(audio[:n]), targets[:n], None,
+                      np.zeros(n, bool), np.zeros(n, bool), np.full(n, np.nan), np.empty(0),
+                      info, target_valid=np.asarray(validity[:n]))
 
 
 def default_checkpoint(name):
@@ -211,10 +341,25 @@ def precompute_image_only(args, device, rows, inputs, target, main_prediction, m
 
 
 def precompute(args, progress=lambda *_: None):
+    if getattr(args, "ground_truth_only", False):
+        return load_ground_truth(args, progress)
     started = time.perf_counter()
     root = Path(args.data_root).resolve()
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    if not (root / "events.jsonl").is_file():
+        raise ValueError("Prepared caches can be viewed directly with --ground-truth-only; inference requires an exported deployment package")
     rows = select_sequence(root, args.sequence)
+    threshold = getattr(args, "trim_stationary_xy_mm", 0.)
+    selection = None
+    if threshold:
+        # Select complete windows before loading a model or running either stream.
+        # Ground truth controls offline data selection only; never pass it to step().
+        targets = []
+        for row in rows:
+            with np.load(root / row["data"], allow_pickle=False) as z:
+                targets.append(z["target"].copy())
+        selection = trim_ground_truth(rows, np.asarray(targets), threshold, mode="inference")
+        rows = rows[:selection["retained_events"]]
     torch.set_num_threads(args.threads)
     model, stats, device, info = prepare_model(args, manifest, root)
     mean = np.asarray(stats["audio_mean"], dtype=np.float64)[:, None, None]
@@ -238,8 +383,10 @@ def precompute(args, progress=lambda *_: None):
                 [.229, .224, .225], np.float32)[:, None, None]
             inputs[path] = np.ascontiguousarray(chw[None])
         progress("读取", index + 1, len(rows))
-    pred, valid, slip_ok, probability, latency = infer_events(model, stats, device, rows, audio, inputs, progress)
     target = np.asarray(targets)
+    if selection is None:
+        selection = trim_ground_truth(rows, target, 0., mode="inference")
+    pred, valid, slip_ok, probability, latency = infer_events(model, stats, device, rows, audio, inputs, progress)
     comparison = None
     comparison_info = {"enabled": False}
     if getattr(args, "image_only_comparison", True) and not args.random_weights:
@@ -261,6 +408,7 @@ def precompute(args, progress=lambda *_: None):
         "xy_p95_mm": float(np.percentile(errors, 95)) if len(errors) else None,
         "wrench_mae": np.abs(pred[:, 3:9] - target[:, 3:9]).mean(axis=0).tolist(),
         "disabled_mic_channels": disabled_channels, "image_only": comparison_info,
+        "trim_selection": selection,
         "timing_note": "Ordered batch-one cached-image inference, including input transfer/output CPU copy; "
             "no warmup, startup first call retained. Playback/render FPS is separate from inference latency.",
         "contact_truth_note": "All exported slide events are in contact by acquisition protocol; no Fz relabeling.",
@@ -272,6 +420,17 @@ def save_results(data, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     (output / "summary.json").write_text(json.dumps(data.summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    if data.summary.get("ground_truth_only"):
+        np.savez_compressed(output / "ground_truth.npz", target=data.target, target_valid=data.target_valid,
+                            event_pc_ns=np.asarray([r["event_pc_ns"] for r in data.metadata], dtype=np.int64))
+        with (output / "ground_truth.csv").open("w", newline="", encoding="utf-8-sig") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["sequence", "sequence_index", "event_pc_ns", "image"]
+                            + [f"true_{k}" for k in TARGET_NAMES] + [f"label_valid_{k}" for k in TARGET_NAMES])
+            for i, row in enumerate(data.metadata):
+                writer.writerow([row["sequence"], row["sequence_index"], row["event_pc_ns"], row["image"],
+                                 *data.target[i], *data.target_valid[i]])
+        return
     extra = {}
     if data.image_only is not None:
         baseline = data.image_only

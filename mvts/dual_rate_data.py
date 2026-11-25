@@ -301,9 +301,34 @@ def read_prepared(root):
     if not (root / "manifest.json").is_file():
         raise ValueError(f"No completed preparation cache at {root}; run python preprocess.py --output {root}")
     manifest = read_json(root / "manifest.json")
+    if manifest.get("version") == 5:
+        from .contact_data import read_contact_prepared
+        return read_contact_prepared(root)
     if manifest["version"] != CACHE_VERSION or manifest["features"] != feature_config().to_dict():
         raise ValueError("Incompatible preparation cache; regenerate it")
     return [{**r, "cache_root": str(root.resolve())} for r in manifest["records"]], manifest
+
+
+def validate_prepared_partition(records, checkpoint, partition):
+    """Keep v4 checkpoint compatibility while also checking v5 supervision."""
+    if ([r["id"] for r in records] != checkpoint["split_ids"][partition]
+            or [r["target"] for r in records] != checkpoint["split_labels"][partition]):
+        raise ValueError("Prepared dataset/split/labels changed; start a new run")
+    expected = checkpoint.get("split_supervision", {}).get(partition, [None] * len(records))
+    if [r.get("supervision_sha256") for r in records] != expected:
+        raise ValueError("Prepared contact supervision changed; start a new run")
+
+
+def load_prepared_arrays(record):
+    if "supervision_sha256" in record:
+        from .contact_data import load_contact_arrays
+        return load_contact_arrays(record)
+    with np.load(Path(record["cache_root"]) / record["file"], allow_pickle=False) as z:
+        audio, target = z["audio"].copy(), z["target"].copy()
+    result = {"audio": audio, "target": target, "target_valid": np.ones(target.shape, dtype=bool)}
+    if record.get("mixed_contact_cache"):
+        result.update(contact=np.ones(len(target), dtype=np.int8), contact_valid=np.zeros(len(target), dtype=bool))
+    return result
 
 
 def subset_prepared(source_root, output, press_sources):
@@ -359,18 +384,22 @@ def split_prepared(records, seed=42, val_fraction=.15, test_fraction=.15, max_gr
 
 
 def fit_prepared_statistics(records):
-    count, audio_count = 0, 0
+    count, audio_count, event_count = np.zeros(11, dtype=np.int64), 0, 0
     total, square = np.zeros(11), np.zeros(11)
     audio_total, audio_square = np.zeros(6), np.zeros(6)
     for r in records:
-        with np.load(Path(r["cache_root"]) / r["file"]) as z:
-            y, a = z["target"].astype(np.float64), z["audio"].astype(np.float64)
-        total += y.sum(0)
-        square += (y*y).sum(0)
-        count += len(y)
+        arrays = load_prepared_arrays(r)
+        y, a = arrays["target"].astype(np.float64), arrays["audio"].astype(np.float64)
+        valid = arrays["target_valid"]
+        total += (y * valid).sum(0)
+        square += (y*y * valid).sum(0)
+        count += valid.sum(0)
+        event_count += len(y)
         audio_total += a.sum((0, 2, 3))
         audio_square += (a*a).sum((0, 2, 3))
         audio_count += a.shape[0] * a.shape[2] * a.shape[3]
+    if (count == 0).any():
+        raise ValueError("Training split needs valid regression labels for every target dimension")
     mean, am = total/count, audio_total/audio_count
     std = np.sqrt(np.maximum(square/count - mean*mean, 1e-8))
     # A realistic mm floor prevents near-zero press-only displacement variance
@@ -378,12 +407,56 @@ def fit_prepared_statistics(records):
     std[9:] = np.maximum(std[9:], .01)
     return {"target_mean": mean.tolist(), "target_std": std.tolist(),
             "audio_mean": am.tolist(), "audio_std": np.sqrt(np.maximum(audio_square/audio_count-am*am,1e-8)).tolist(),
-            "fit_sample_count": count, "target_names": TARGET_NAMES}
+            "fit_sample_count": event_count, "target_fit_counts": count.tolist(), "target_names": TARGET_NAMES}
+
+
+def event_timing_seconds(event_times, previous_times, image_time, length, *, independent=False):
+    """Convert integer ns BEFORE float conversion; no labels enter timing.
+
+    Independent press events use a nominal positive interval for gate scaling.
+    Their host image-read completion may lag the paired label timestamp; clamp
+    that host-derived age to zero (it does not certify exposure-time causality).
+    Continuous slide events require real timestamps and positive measured dt.
+    A prepared slide window starts at its image anchor if image_time is omitted.
+    """
+    nominal_dt = np.full(length, 1. / 150., dtype=np.float32)
+    if event_times is None:
+        if independent:
+            return {"delta_t": nominal_dt, "image_age": np.zeros(length, dtype=np.float32)}
+        raise ValueError("Slip-gated slide data requires event_pc_ns timing; regenerate the cache")
+    times = np.asarray(event_times, dtype=np.int64)
+    if times.shape != (length,) or (np.diff(times) <= 0).any():
+        raise ValueError("event_pc_ns must be a strictly increasing event vector")
+    anchor = times[0] if image_time is None else int(image_time)
+    age_ns = times - anchor
+    if independent:
+        if length != 1:
+            raise ValueError("Independent press timing must contain exactly one event")
+        dt = nominal_dt
+        age_ns = np.maximum(age_ns, 0)
+    else:
+        if previous_times is None:
+            raise ValueError("Slip-gated slide data requires previous_pc_ns for actual delta_t")
+        previous = np.asarray(previous_times, dtype=np.int64)
+        if previous.shape != times.shape or (times <= previous).any() or (age_ns < 0).any():
+            raise ValueError("Invalid causal slide timestamps / image age")
+        if length > 1 and not np.array_equal(previous[1:], times[:-1]):
+            raise ValueError("Slide previous_pc_ns must match preceding event timestamps")
+        dt = ((times - previous) * 1e-9).astype(np.float32)
+    return {"delta_t": dt, "image_age": (age_ns * 1e-9).astype(np.float32)}
+
+
+def prepared_event_timing(record):
+    with np.load(Path(record["cache_root"]) / record["file"], allow_pickle=False) as z:
+        times = z["event_pc_ns"].copy() if "event_pc_ns" in z else None
+        previous = z["previous_pc_ns"].copy() if "previous_pc_ns" in z else None
+    return event_timing_seconds(times, previous, record.get("image_pc_ns"), record["events"],
+                                independent=record["kind"] == "press")
 
 
 class PreparedDataset(Dataset):
-    def __init__(self, records, stats):
-        self.records, self.stats = records, stats
+    def __init__(self, records, stats, *, include_timing=False):
+        self.records, self.stats, self.include_timing = records, stats, include_timing
 
     def __len__(self):
         return len(self.records)
@@ -391,13 +464,17 @@ class PreparedDataset(Dataset):
     def __getitem__(self, index):
         r = self.records[index]
         root = Path(r["cache_root"])
-        with np.load(root / r["file"], allow_pickle=False) as z:
-            audio, target = z["audio"].copy(), z["target"].copy()
+        arrays = load_prepared_arrays(r)
+        audio, target = arrays["audio"], arrays["target"]
         s = self.stats
+        timing = prepared_event_timing(r) if self.include_timing else {}
         return {"image": load_image(root/r["image"]),
                 "audio": torch.tensor((audio-np.array(s["audio_mean"])[None,:,None,None])/
                                        np.array(s["audio_std"])[None,:,None,None], dtype=torch.float32),
                 "target": torch.tensor((target-np.array(s["target_mean"]))/np.array(s["target_std"]), dtype=torch.float32),
+                **{key: torch.from_numpy(arrays[key]) for key in ("target_valid", "contact", "contact_valid")
+                   if key in arrays},
+                **{key: torch.from_numpy(value) for key, value in timing.items()},
                 "id": r["id"], "sequence": r["sequence"], "order": r["order"]}
 
 

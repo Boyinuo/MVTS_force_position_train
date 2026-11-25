@@ -12,10 +12,13 @@ from torch.utils.data import DataLoader
 
 from .architectures import build_model
 from .contact_data import (ContactPreparedDataset, DEFAULT_CONTACT_CACHE, contact_summary,
-                           fit_contact_statistics, read_contact_prepared)
+                           fit_contact_statistics)
 from .data import write_json
-from .dual_rate_data import TARGET_NAMES, OrderedBatchSampler, feature_config, split_prepared
+from .dual_rate_data import TARGET_NAMES, OrderedBatchSampler, feature_config
 from .engine import choose_device, load_checkpoint, save_checkpoint, seed_everything
+from .regression import (dimension_metrics as _dimension_metrics, masked_huber,
+                         zero_wrench_loss)
+from .prepared_selection import prepare_training_data
 
 MODEL_NAME = "model_contact_gated"
 LOSS_NAMES = ("position", "wrench", "slip", "contact", "zero_wrench")
@@ -25,12 +28,6 @@ def make_contact_loader(records, stats, batch_size, workers=0, training=False, s
     return DataLoader(ContactPreparedDataset(records, stats),
                       batch_sampler=OrderedBatchSampler(records, batch_size, training, seed),
                       num_workers=workers)
-
-
-def masked_huber(prediction, target, valid):
-    mask = valid.expand_as(prediction)
-    error = F.smooth_l1_loss(prediction, target, reduction="none")
-    return torch.where(mask, error, 0.).sum()/mask.sum().clamp_min(1)
 
 
 def contact_losses(model, result, batch, class_weights):
@@ -44,19 +41,9 @@ def contact_losses(model, result, batch, class_weights):
     losses["contact"] = torch.where(cv, bce*weights, 0.).sum()/cv.sum().clamp_min(1)
     # Physical zero is -mean/std in normalized head space. Work explicitly in
     # physical units BEFORE any predicted gate; scale N and N*m independently.
-    wrench = result["wrench"]*model.target_std[3:9]+model.target_mean[3:9]
-    zero_valid = (cv & (contact == 0))[..., None]
-    losses["zero_wrench"] = masked_huber(wrench/model.target_std[3:9], torch.zeros_like(wrench), zero_valid)
+    losses["zero_wrench"] = zero_wrench_loss(
+        result["wrench"], model.target_mean[3:9], model.target_std[3:9], cv & (contact == 0))
     return losses
-
-
-def _dimension_metrics(pred, true, valid, squared=False):
-    error = (pred-true)**2 if squared else np.abs(pred-true)
-    count = valid.sum(0)
-    values = (error*valid).sum(0)/np.maximum(count,1)
-    if squared:
-        values = np.sqrt(values)
-    return {name: float(v) if n else None for name, v, n in zip(TARGET_NAMES,values,count)}
 
 
 def run_contact_epoch(model, loader, device, stats, optimizer=None, max_steps=None,
@@ -174,18 +161,15 @@ def train_contact_prepared(args):
     output.mkdir(parents=True,exist_ok=True)
     if (output/"last.pt").exists() and not args.resume:
         raise ValueError("Output has last.pt; choose a new run or --resume")
-    prepared = args.prepared_root or DEFAULT_CONTACT_CACHE
-    args.prepared_root = str(prepared)
-    records,manifest = read_contact_prepared(prepared)
-    split = split_prepared(records,args.seed,args.val_fraction,args.test_fraction,args.max_groups)
-    report = json.loads((Path(prepared)/"report.json").read_text(encoding="utf-8"))
+    config,checkpoint = feature_config(),None
+    if args.resume:
+        model,checkpoint,config = load_checkpoint(args.resume,device)
+    split,manifest,report = prepare_training_data(args, DEFAULT_CONTACT_CACHE, checkpoint, contact_only=True)
     write_json(output/"data_report.json",report)
     if args.audit_only:
         print({k:{"windows":len(v),"contact":contact_summary(v)} for k,v in split.items()},flush=True)
         return
-    config,checkpoint = feature_config(),None
     if args.resume:
-        model,checkpoint,config = load_checkpoint(args.resume,device)
         if model.model_name != MODEL_NAME:
             raise ValueError("Resume model mismatch; new architecture needs a new training run")
         saved_channels = list(model.config.disabled_mic_channels)
